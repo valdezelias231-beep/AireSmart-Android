@@ -72,8 +72,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 6
-                  versionName "1.0.5"
+                  versionCode 7
+                  versionName "1.0.6"
               }
 
               buildTypes {
@@ -102,9 +102,9 @@ jobs:
           <resources>
               <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
                   <item name="android:fontFamily">sans</item>
-                  <item name="android:windowLightStatusBar">false</item>
-                  <item name="android:statusBarColor">#171A20</item>
-                  <item name="android:navigationBarColor">#171A20</item>
+                  <item name="android:windowLightStatusBar">true</item>
+                  <item name="android:statusBarColor">#E4E9EF</item>
+                  <item name="android:navigationBarColor">#E4E9EF</item>
                   <item name="android:colorAccent">#2F8CFF</item>
                   <item name="android:windowBackground">#E9EDF2</item>
               </style>
@@ -136,6 +136,9 @@ jobs:
 
           import android.app.Activity;
           import android.app.AlertDialog;
+          import android.animation.ValueAnimator;
+          import android.animation.Animator;
+          import android.animation.AnimatorListenerAdapter;
           import android.content.Context;
           import android.content.SharedPreferences;
           import android.graphics.Canvas;
@@ -149,6 +152,10 @@ jobs:
           import android.os.Looper;
           import android.text.InputType;
           import android.view.Gravity;
+          import android.view.HapticFeedbackConstants;
+          import android.view.MotionEvent;
+          import android.view.animation.AccelerateDecelerateInterpolator;
+          import android.view.animation.LinearInterpolator;
           import android.view.View;
           import android.widget.Button;
           import android.widget.EditText;
@@ -194,10 +201,21 @@ jobs:
 
               private final Runnable ackTimeout = () -> {
                   if (pendingId != null) {
-                      ackState.setText("SIN CONFIRMACIÓN · revisa conexión");
+                      showAck("SIN CONFIRMACIÓN · revisa conexión", false);
                       pendingId = null;
                       restoreRing();
                   }
+              };
+
+              private final Runnable clearAck = () -> {
+                  ackState.animate()
+                      .alpha(0f)
+                      .setDuration(180)
+                      .withEndAction(() -> {
+                          ackState.setText("LISTO");
+                          ackState.animate().alpha(1f).setDuration(220).start();
+                      })
+                      .start();
               };
 
               @Override
@@ -273,6 +291,7 @@ jobs:
                   powerRing = new PowerRingView(this);
                   powerRing.setMode(PowerRingView.MODE_SYNC);
                   powerRing.setOnClickListener(v -> sendPower(!systemActive));
+                  addPressEffect(powerRing);
                   hero.addView(powerRing, new LinearLayout.LayoutParams(dp(236), dp(236)));
 
                   systemState = text("SINCRONIZANDO…", 25, Color.rgb(92,112,136), true);
@@ -299,6 +318,8 @@ jobs:
 
                   lowButton.setOnClickListener(v -> sendSpeed(false));
                   highButton.setOnClickListener(v -> sendSpeed(true));
+                  addPressEffect(lowButton);
+                  addPressEffect(highButton);
 
                   speeds.addView(lowButton, new LinearLayout.LayoutParams(0, dp(54), 1));
                   spaceHorizontal(speeds, 10);
@@ -316,11 +337,12 @@ jobs:
                   ackCard.addView(ackState);
                   root.addView(ackCard);
 
-                  TextView version = text("AireSmart Remote v1.0.5", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.6 · Xiaomi Style", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
 
+                  animateEntrance(root);
                   return scroll;
               }
 
@@ -523,17 +545,18 @@ jobs:
                           );
 
                           runOnUiThread(() -> {
-                              ackState.setText(
+                              showAck(
                                   accepted
                                       ? "ORDEN CONFIRMADA"
-                                      : "ORDEN RECHAZADA · " + friendlyResult(result)
+                                      : "ORDEN RECHAZADA · " + friendlyResult(result),
+                                  accepted
                               );
                               paintState(state, 0);
                           });
                       }
 
                   } catch (Exception e) {
-                      runOnUiThread(() -> ackState.setText("MENSAJE MQTT NO VÁLIDO"));
+                      runOnUiThread(() -> showAck("MENSAJE MQTT NO VÁLIDO", false));
                   }
               }
 
@@ -560,7 +583,7 @@ jobs:
                       : "{\"id\":\""+id+"\",\"action\":\""+action+"\",\"value\":\""+value+"\"}";
 
                   pendingId = id;
-                  ackState.setText("ENVIANDO ORDEN…");
+                  showAck("ENVIANDO ORDEN…", false);
                   powerRing.setMode(PowerRingView.MODE_PENDING);
 
                   mainHandler.removeCallbacks(ackTimeout);
@@ -578,8 +601,9 @@ jobs:
                           runOnUiThread(() -> {
                               mainHandler.removeCallbacks(ackTimeout);
                               pendingId = null;
-                              ackState.setText(
-                                  "ERROR AL ENVIAR · " + safe(e.getMessage())
+                              showAck(
+                                  "ERROR AL ENVIAR · " + safe(e.getMessage()),
+                                  false
                               );
                               restoreRing();
                           });
@@ -652,12 +676,102 @@ jobs:
                       lowButton.setTextColor(Color.rgb(92,112,136));
                       highButton.setBackground(bg(Color.rgb(240,139,42), 14));
                       highButton.setTextColor(Color.WHITE);
+                      popSelected(highButton);
                   } else {
                       lowButton.setBackground(bg(Color.rgb(13,125,246), 14));
                       lowButton.setTextColor(Color.WHITE);
                       highButton.setBackground(bg(Color.rgb(220,226,233), 14));
                       highButton.setTextColor(Color.rgb(92,112,136));
+                      popSelected(lowButton);
                   }
+              }
+
+              private void showAck(String message, boolean success) {
+                  mainHandler.removeCallbacks(clearAck);
+                  ackState.animate().cancel();
+                  ackState.animate()
+                      .alpha(0f)
+                      .setDuration(130)
+                      .withEndAction(() -> {
+                          ackState.setText(message);
+                          ackState.setTextColor(
+                              success
+                                  ? Color.rgb(13,136,74)
+                                  : Color.rgb(99,119,143)
+                          );
+                          ackState.animate().alpha(1f).setDuration(210).start();
+
+                          if (success && powerRing != null) {
+                              powerRing.performHapticFeedback(
+                                  HapticFeedbackConstants.CONFIRM
+                              );
+                              powerRing.flashSuccess();
+                          }
+
+                          if (!message.startsWith("ENVIANDO")) {
+                              mainHandler.postDelayed(clearAck, 2600);
+                          }
+                      })
+                      .start();
+              }
+
+              private void addPressEffect(View v) {
+                  v.setOnTouchListener((view, event) -> {
+                      if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                          view.animate()
+                              .scaleX(0.965f)
+                              .scaleY(0.965f)
+                              .setDuration(90)
+                              .start();
+                      } else if (
+                          event.getAction() == MotionEvent.ACTION_UP ||
+                          event.getAction() == MotionEvent.ACTION_CANCEL
+                      ) {
+                          view.animate()
+                              .scaleX(1f)
+                              .scaleY(1f)
+                              .setDuration(180)
+                              .setInterpolator(new AccelerateDecelerateInterpolator())
+                              .start();
+                      }
+                      return false;
+                  });
+              }
+
+              private void popSelected(View v) {
+                  v.animate().cancel();
+                  v.setScaleX(0.985f);
+                  v.setScaleY(0.985f);
+                  v.animate()
+                      .scaleX(1.015f)
+                      .scaleY(1.015f)
+                      .setDuration(140)
+                      .withEndAction(() ->
+                          v.animate()
+                              .scaleX(1f)
+                              .scaleY(1f)
+                              .setDuration(170)
+                              .start()
+                      )
+                      .start();
+              }
+
+              private void animateEntrance(LinearLayout root) {
+                  root.post(() -> {
+                      int count = root.getChildCount();
+                      for (int i = 0; i < count; i++) {
+                          View child = root.getChildAt(i);
+                          child.setAlpha(0f);
+                          child.setTranslationY(dp(12));
+                          child.animate()
+                              .alpha(1f)
+                              .translationY(0f)
+                              .setStartDelay(i * 45L)
+                              .setDuration(320)
+                              .setInterpolator(new AccelerateDecelerateInterpolator())
+                              .start();
+                      }
+                  });
               }
 
               private String friendlyResult(String result) {
@@ -795,10 +909,18 @@ jobs:
                   private final Paint icon = new Paint(Paint.ANTI_ALIAS_FLAG);
 
                   private int mode = MODE_SYNC;
+                  private float rotation = 0f;
+                  private float pulse = 1f;
+                  private float flash = 0f;
+                  private ValueAnimator rotationAnimator;
+                  private ValueAnimator pulseAnimator;
+                  private ValueAnimator flashAnimator;
 
                   public PowerRingView(Context context) {
                       super(context);
                       setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+                      setClickable(true);
+                      setFocusable(true);
 
                       track.setStyle(Paint.Style.STROKE);
                       track.setStrokeWidth(dpLocal(12));
@@ -814,11 +936,67 @@ jobs:
                       icon.setStyle(Paint.Style.STROKE);
                       icon.setStrokeCap(Paint.Cap.ROUND);
                       icon.setStrokeWidth(dpLocal(5));
+
+                      startModeAnimation();
                   }
 
                   public void setMode(int m) {
+                      if (mode == m) return;
                       mode = m;
+                      startModeAnimation();
                       invalidate();
+                  }
+
+                  public void flashSuccess() {
+                      if (flashAnimator != null) flashAnimator.cancel();
+                      flashAnimator = ValueAnimator.ofFloat(0f, 1f, 0f);
+                      flashAnimator.setDuration(520);
+                      flashAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
+                      flashAnimator.addUpdateListener(a -> {
+                          flash = (float) a.getAnimatedValue();
+                          invalidate();
+                      });
+                      flashAnimator.start();
+                  }
+
+                  private void startModeAnimation() {
+                      if (rotationAnimator != null) rotationAnimator.cancel();
+                      if (pulseAnimator != null) pulseAnimator.cancel();
+
+                      rotation = 0f;
+                      pulse = 1f;
+
+                      if (
+                          mode == MODE_SYNC ||
+                          mode == MODE_SOAK ||
+                          mode == MODE_PENDING
+                      ) {
+                          rotationAnimator = ValueAnimator.ofFloat(0f, 360f);
+                          rotationAnimator.setRepeatCount(ValueAnimator.INFINITE);
+                          rotationAnimator.setInterpolator(new LinearInterpolator());
+                          rotationAnimator.setDuration(
+                              mode == MODE_PENDING ? 780 :
+                              mode == MODE_SOAK ? 1700 : 2400
+                          );
+                          rotationAnimator.addUpdateListener(a -> {
+                              rotation = (float) a.getAnimatedValue();
+                              invalidate();
+                          });
+                          rotationAnimator.start();
+                      }
+
+                      if (mode == MODE_ON || mode == MODE_SOAK) {
+                          pulseAnimator = ValueAnimator.ofFloat(1f, 1.028f);
+                          pulseAnimator.setDuration(mode == MODE_ON ? 1500 : 1150);
+                          pulseAnimator.setRepeatCount(ValueAnimator.INFINITE);
+                          pulseAnimator.setRepeatMode(ValueAnimator.REVERSE);
+                          pulseAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
+                          pulseAnimator.addUpdateListener(a -> {
+                              pulse = (float) a.getAnimatedValue();
+                              invalidate();
+                          });
+                          pulseAnimator.start();
+                      }
                   }
 
                   @Override
@@ -830,6 +1008,9 @@ jobs:
                       float cx = w / 2f;
                       float cy = h / 2f;
                       float radius = Math.min(w, h) * 0.39f;
+
+                      c.save();
+                      c.scale(pulse, pulse, cx, cy);
 
                       int color;
                       switch (mode) {
@@ -853,6 +1034,13 @@ jobs:
                               break;
                       }
 
+                      if (flash > 0f) {
+                          int r = Math.min(255, (int)(19 + 80 * flash));
+                          int g = Math.min(255, (int)(170 + 70 * flash));
+                          int b = Math.min(255, (int)(104 + 80 * flash));
+                          color = Color.rgb(r, g, b);
+                      }
+
                       float outer = radius + dpLocal(18);
                       RectF oval = new RectF(
                           cx - outer, cy - outer,
@@ -863,14 +1051,24 @@ jobs:
 
                       ring.setColor(color);
                       ring.setShadowLayer(
-                          dpLocal(15),
+                          dpLocal(15 + 7 * flash),
                           0,
                           0,
                           color
                       );
 
-                      float sweep = mode == MODE_SYNC ? 265f : 360f;
-                      c.drawArc(oval, -90f, sweep, false, ring);
+                      float sweep;
+                      if (mode == MODE_SYNC) sweep = 250f;
+                      else if (mode == MODE_SOAK || mode == MODE_PENDING) sweep = 285f;
+                      else sweep = 360f;
+
+                      c.drawArc(
+                          oval,
+                          -90f + rotation,
+                          sweep,
+                          false,
+                          ring
+                      );
                       ring.clearShadowLayer();
 
                       center.setShadowLayer(
@@ -900,6 +1098,16 @@ jobs:
                           cy - iconR * 0.05f,
                           icon
                       );
+
+                      c.restore();
+                  }
+
+                  @Override
+                  protected void onDetachedFromWindow() {
+                      super.onDetachedFromWindow();
+                      if (rotationAnimator != null) rotationAnimator.cancel();
+                      if (pulseAnimator != null) pulseAnimator.cancel();
+                      if (flashAnimator != null) flashAnimator.cancel();
                   }
 
                   private float dpLocal(float v) {
@@ -913,10 +1121,10 @@ jobs:
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk AireSmart_Remote_v1.0.5.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk AireSmart_Remote_v1.0.6_Xiaomi_Style.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.5
-          path: AireSmart_Remote_v1.0.5.apk
+          name: AireSmart-Remote-v1.0.6-Xiaomi-Style
+          path: AireSmart_Remote_v1.0.6_Xiaomi_Style.apk
