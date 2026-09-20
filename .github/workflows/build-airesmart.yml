@@ -72,8 +72,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 8
-                  versionName "1.0.7"
+                  versionCode 9
+                  versionName "1.0.8"
               }
 
               buildTypes {
@@ -337,7 +337,7 @@ jobs:
                   ackCard.addView(ackState);
                   root.addView(ackCard);
 
-                  TextView version = text("AireSmart Remote v1.0.7", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.8", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -617,33 +617,88 @@ jobs:
                   systemActive = soak > 0 || !upper.contains("APAGADO");
 
                   if (soak > 0 || upper.contains("REMOJ")) {
-                      systemState.setText("REMOJANDO");
-                      systemState.setTextColor(Color.rgb(13,125,246));
-                      heroSub.setText(
-                          soak > 0
-                              ? "Preparando enfriamiento · " + soak + " s"
-                              : "Preparando enfriamiento"
-                      );
+                      setStateLabel("REMOJANDO", Color.rgb(13,125,246));
+                      hideHeroSub();
                       powerRing.setMode(PowerRingView.MODE_SOAK);
+                      powerRing.setSoakRemaining(Math.max(0L, soak));
 
                   } else if (motorOn || upper.contains("ENCENDIDO")) {
-                      systemState.setText(
-                          high ? "ENCENDIDO · ALTA" : "ENCENDIDO · BAJA"
+                      setStateLabel(
+                          high ? "ENCENDIDO · ALTA" : "ENCENDIDO · BAJA",
+                          Color.rgb(7,136,74)
                       );
-                      systemState.setTextColor(Color.rgb(7,136,74));
-                      heroSub.setText("Funcionamiento normal");
+                      showHeroSub("Funcionamiento normal");
                       systemActive = true;
                       powerRing.setMode(PowerRingView.MODE_ON);
 
                   } else {
-                      systemState.setText("APAGADO");
-                      systemState.setTextColor(Color.rgb(201,54,64));
-                      heroSub.setText("Equipo en espera");
+                      setStateLabel("APAGADO", Color.rgb(201,54,64));
+                      showHeroSub("Equipo en espera");
                       systemActive = false;
                       powerRing.setMode(PowerRingView.MODE_OFF);
                   }
 
                   paintSpeedButtons();
+              }
+
+              private void setStateLabel(String label, int color) {
+                  String current = systemState.getText() == null
+                      ? ""
+                      : systemState.getText().toString();
+
+                  if (current.equals(label)) {
+                      systemState.setTextColor(color);
+                      return;
+                  }
+
+                  systemState.animate().cancel();
+                  systemState.animate()
+                      .alpha(0f)
+                      .translationY(-dp(5))
+                      .setDuration(110)
+                      .withEndAction(() -> {
+                          systemState.setText(label);
+                          systemState.setTextColor(color);
+                          systemState.setTranslationY(dp(5));
+                          systemState.animate()
+                              .alpha(1f)
+                              .translationY(0f)
+                              .setDuration(210)
+                              .setInterpolator(new AccelerateDecelerateInterpolator())
+                              .start();
+                      })
+                      .start();
+              }
+
+              private void hideHeroSub() {
+                  if (heroSub.getVisibility() == View.GONE) return;
+
+                  heroSub.animate().cancel();
+                  heroSub.animate()
+                      .alpha(0f)
+                      .setDuration(130)
+                      .withEndAction(() -> heroSub.setVisibility(View.GONE))
+                      .start();
+              }
+
+              private void showHeroSub(String text) {
+                  boolean wasHidden = heroSub.getVisibility() != View.VISIBLE;
+                  boolean changed = heroSub.getText() == null ||
+                      !heroSub.getText().toString().equals(text);
+
+                  if (!wasHidden && !changed) return;
+
+                  heroSub.animate().cancel();
+                  heroSub.setText(text);
+                  heroSub.setVisibility(View.VISIBLE);
+                  heroSub.setAlpha(0f);
+                  heroSub.setTranslationY(dp(4));
+                  heroSub.animate()
+                      .alpha(1f)
+                      .translationY(0f)
+                      .setDuration(220)
+                      .setInterpolator(new AccelerateDecelerateInterpolator())
+                      .start();
               }
 
               private void restoreRing() {
@@ -906,6 +961,7 @@ jobs:
                   private final Paint track = new Paint(Paint.ANTI_ALIAS_FLAG);
                   private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
                   private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint liquidHead = new Paint(Paint.ANTI_ALIAS_FLAG);
                   private final Paint center = new Paint(Paint.ANTI_ALIAS_FLAG);
                   private final Paint icon = new Paint(Paint.ANTI_ALIAS_FLAG);
 
@@ -913,9 +969,12 @@ jobs:
                   private float rotation = 0f;
                   private float pulse = 1f;
                   private float flash = 0f;
+                  private float soakProgress = 0.02f;
+
                   private ValueAnimator rotationAnimator;
                   private ValueAnimator pulseAnimator;
                   private ValueAnimator flashAnimator;
+                  private ValueAnimator soakAnimator;
 
                   public PowerRingView(Context context) {
                       super(context);
@@ -925,6 +984,7 @@ jobs:
 
                       track.setStyle(Paint.Style.STROKE);
                       track.setStrokeWidth(dpLocal(12));
+                      track.setStrokeCap(Paint.Cap.ROUND);
                       track.setColor(Color.rgb(215,224,232));
 
                       glow.setStyle(Paint.Style.STROKE);
@@ -934,6 +994,10 @@ jobs:
                       ring.setStyle(Paint.Style.STROKE);
                       ring.setStrokeCap(Paint.Cap.ROUND);
                       ring.setStrokeWidth(dpLocal(13));
+
+                      liquidHead.setStyle(Paint.Style.STROKE);
+                      liquidHead.setStrokeCap(Paint.Cap.ROUND);
+                      liquidHead.setStrokeWidth(dpLocal(13));
 
                       center.setStyle(Paint.Style.FILL);
                       center.setColor(Color.rgb(248,249,251));
@@ -947,9 +1011,52 @@ jobs:
 
                   public void setMode(int m) {
                       if (mode == m) return;
+
                       mode = m;
                       startModeAnimation();
+
+                      animate().cancel();
+                      setScaleX(0.975f);
+                      setScaleY(0.975f);
+                      setAlpha(0.86f);
+                      animate()
+                          .scaleX(1f)
+                          .scaleY(1f)
+                          .alpha(1f)
+                          .setDuration(330)
+                          .setInterpolator(new AccelerateDecelerateInterpolator())
+                          .start();
+
                       invalidate();
+                  }
+
+                  public void setSoakRemaining(long remainingSeconds) {
+                      if (mode != MODE_SOAK) return;
+
+                      long safeRemaining = Math.max(0L, Math.min(120L, remainingSeconds));
+                      float startProgress = 1f - (safeRemaining / 120f);
+                      startProgress = Math.max(0.02f, Math.min(1f, startProgress));
+
+                      // Corrige suavemente cualquier diferencia con el estado real recibido
+                      // y continúa llenando el aro de manera local y fluida.
+                      soakProgress = startProgress;
+
+                      if (soakAnimator != null) soakAnimator.cancel();
+
+                      if (safeRemaining == 0L) {
+                          soakProgress = 1f;
+                          invalidate();
+                          return;
+                      }
+
+                      soakAnimator = ValueAnimator.ofFloat(startProgress, 1f);
+                      soakAnimator.setDuration(Math.max(450L, safeRemaining * 1000L));
+                      soakAnimator.setInterpolator(new LinearInterpolator());
+                      soakAnimator.addUpdateListener(a -> {
+                          soakProgress = (float) a.getAnimatedValue();
+                          invalidate();
+                      });
+                      soakAnimator.start();
                   }
 
                   public void flashSuccess() {
@@ -968,20 +1075,20 @@ jobs:
                       if (rotationAnimator != null) rotationAnimator.cancel();
                       if (pulseAnimator != null) pulseAnimator.cancel();
 
+                      // El llenado REMOJANDO es progresivo: nunca gira.
+                      if (mode != MODE_SOAK && soakAnimator != null) {
+                          soakAnimator.cancel();
+                      }
+
                       rotation = 0f;
                       pulse = 1f;
 
-                      if (
-                          mode == MODE_SYNC ||
-                          mode == MODE_SOAK ||
-                          mode == MODE_PENDING
-                      ) {
+                      if (mode == MODE_SYNC || mode == MODE_PENDING) {
                           rotationAnimator = ValueAnimator.ofFloat(0f, 360f);
                           rotationAnimator.setRepeatCount(ValueAnimator.INFINITE);
                           rotationAnimator.setInterpolator(new LinearInterpolator());
                           rotationAnimator.setDuration(
-                              mode == MODE_PENDING ? 780 :
-                              mode == MODE_SOAK ? 1700 : 2400
+                              mode == MODE_PENDING ? 820 : 2350
                           );
                           rotationAnimator.addUpdateListener(a -> {
                               rotation = (float) a.getAnimatedValue();
@@ -991,8 +1098,8 @@ jobs:
                       }
 
                       if (mode == MODE_ON || mode == MODE_SOAK) {
-                          pulseAnimator = ValueAnimator.ofFloat(1f, 1.028f);
-                          pulseAnimator.setDuration(mode == MODE_ON ? 1500 : 1150);
+                          pulseAnimator = ValueAnimator.ofFloat(1f, 1.012f);
+                          pulseAnimator.setDuration(mode == MODE_ON ? 1700 : 1450);
                           pulseAnimator.setRepeatCount(ValueAnimator.INFINITE);
                           pulseAnimator.setRepeatMode(ValueAnimator.REVERSE);
                           pulseAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
@@ -1054,15 +1161,25 @@ jobs:
 
                       c.drawOval(oval, track);
 
+                      float startAngle = -90f;
                       float sweep;
-                      if (mode == MODE_SYNC) sweep = 250f;
-                      else if (mode == MODE_SOAK || mode == MODE_PENDING) sweep = 285f;
-                      else sweep = 360f;
 
-                      // Circular glow: painted as concentric arcs instead of a rectangular shadow.
-                      int glowAlphaOuter = Math.min(90, 28 + (int)(35 * flash));
-                      int glowAlphaInner = Math.min(120, 48 + (int)(45 * flash));
+                      if (mode == MODE_SYNC) {
+                          sweep = 250f;
+                          startAngle += rotation;
+                      } else if (mode == MODE_PENDING) {
+                          sweep = 285f;
+                          startAngle += rotation;
+                      } else if (mode == MODE_SOAK) {
+                          sweep = Math.max(3f, 360f * soakProgress);
+                      } else {
+                          sweep = 360f;
+                      }
 
+                      int glowAlphaOuter = Math.min(90, 24 + (int)(35 * flash));
+                      int glowAlphaInner = Math.min(125, 45 + (int)(45 * flash));
+
+                      // Halo redondo y suave: sin sombra rectangular.
                       glow.setStrokeWidth(dpLocal(34 + 5 * flash));
                       glow.setColor(Color.argb(
                           glowAlphaOuter,
@@ -1070,37 +1187,33 @@ jobs:
                           Color.green(color),
                           Color.blue(color)
                       ));
-                      c.drawArc(
-                          oval,
-                          -90f + rotation,
-                          sweep,
-                          false,
-                          glow
-                      );
+                      c.drawArc(oval, startAngle, sweep, false, glow);
 
-                      glow.setStrokeWidth(dpLocal(23 + 3 * flash));
+                      glow.setStrokeWidth(dpLocal(22 + 3 * flash));
                       glow.setColor(Color.argb(
                           glowAlphaInner,
                           Color.red(color),
                           Color.green(color),
                           Color.blue(color)
                       ));
-                      c.drawArc(
-                          oval,
-                          -90f + rotation,
-                          sweep,
-                          false,
-                          glow
-                      );
+                      c.drawArc(oval, startAngle, sweep, false, glow);
 
                       ring.setColor(color);
-                      c.drawArc(
-                          oval,
-                          -90f + rotation,
-                          sweep,
-                          false,
-                          ring
-                      );
+                      c.drawArc(oval, startAngle, sweep, false, ring);
+
+                      // Cabeza luminosa del llenado: da sensación de fluido,
+                      // pero el aro permanece fijo y solo avanza.
+                      if (mode == MODE_SOAK && sweep > 5f && sweep < 359.5f) {
+                          float headSweep = Math.min(22f, sweep);
+                          float headStart = startAngle + sweep - headSweep;
+                          liquidHead.setColor(Color.rgb(54,196,255));
+                          liquidHead.setStrokeWidth(dpLocal(13.5f));
+                          c.drawArc(oval, headStart, headSweep, false, liquidHead);
+
+                          glow.setStrokeWidth(dpLocal(24));
+                          glow.setColor(Color.argb(95, 54,196,255));
+                          c.drawArc(oval, headStart, headSweep, false, glow);
+                      }
 
                       center.setShadowLayer(
                           dpLocal(9),
@@ -1136,9 +1249,11 @@ jobs:
                   @Override
                   protected void onDetachedFromWindow() {
                       super.onDetachedFromWindow();
+                      animate().cancel();
                       if (rotationAnimator != null) rotationAnimator.cancel();
                       if (pulseAnimator != null) pulseAnimator.cancel();
                       if (flashAnimator != null) flashAnimator.cancel();
+                      if (soakAnimator != null) soakAnimator.cancel();
                   }
 
                   private float dpLocal(float v) {
@@ -1152,10 +1267,10 @@ jobs:
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk AireSmart_Remote_v1.0.7_Ring_Fix.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk AireSmart_Remote_v1.0.8_Premium_Transitions.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.7-Ring-Fix
-          path: AireSmart_Remote_v1.0.7_Ring_Fix.apk
+          name: AireSmart-Remote-v1.0.8-Premium-Transitions
+          path: AireSmart_Remote_v1.0.8_Premium_Transitions.apk
