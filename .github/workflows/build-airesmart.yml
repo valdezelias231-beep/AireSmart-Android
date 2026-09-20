@@ -72,8 +72,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 5
-                  versionName "1.0.4"
+                  versionCode 6
+                  versionName "1.0.5"
               }
 
               buildTypes {
@@ -99,12 +99,36 @@ jobs:
 
           cat > app/src/main/res/values/styles.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
-          <resources> <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar"> <item name="android:fontFamily">sans</item> <item name="android:windowLightStatusBar">false</item> <item name="android:statusBarColor">#171A20</item> <item name="android:navigationBarColor">#171A20</item> <item name="android:colorAccent">#2F8CFF</item> <item name="android:windowBackground">#E9EDF2</item> </style> </resources>
+          <resources>
+              <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:statusBarColor">#171A20</item>
+                  <item name="android:navigationBarColor">#171A20</item>
+                  <item name="android:colorAccent">#2F8CFF</item>
+                  <item name="android:windowBackground">#E9EDF2</item>
+              </style>
+          </resources>
           EOF
 
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android"> <uses-permission android:name="android.permission.INTERNET" /> <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" /> <application android:allowBackup="false" android:label="AireSmart" android:usesCleartextTraffic="false" android:theme="@style/AppTheme"> <activity android:name=".MainActivity" android:exported="true"> <intent-filter> <action android:name="android.intent.action.MAIN" /> <category android:name="android.intent.category.LAUNCHER" /> </intent-filter> </activity> </application> </manifest>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <application
+                  android:allowBackup="false"
+                  android:label="AireSmart"
+                  android:usesCleartextTraffic="false"
+                  android:theme="@style/AppTheme">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
           EOF
 
           cat > app/src/main/java/com/airesmart/remote/MainActivity.java <<'EOF'
@@ -112,12 +136,17 @@ jobs:
 
           import android.app.Activity;
           import android.app.AlertDialog;
+          import android.content.Context;
+          import android.content.SharedPreferences;
+          import android.graphics.Canvas;
           import android.graphics.Color;
+          import android.graphics.Paint;
+          import android.graphics.RectF;
+          import android.graphics.Typeface;
           import android.graphics.drawable.GradientDrawable;
           import android.os.Bundle;
           import android.os.Handler;
           import android.os.Looper;
-          import android.content.SharedPreferences;
           import android.text.InputType;
           import android.view.Gravity;
           import android.view.View;
@@ -132,7 +161,6 @@ jobs:
           import org.eclipse.paho.client.mqttv3.MqttCallbackExtended;
           import org.eclipse.paho.client.mqttv3.MqttClient;
           import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
-          import org.eclipse.paho.client.mqttv3.MqttException;
           import org.eclipse.paho.client.mqttv3.MqttMessage;
           import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
           import org.json.JSONObject;
@@ -144,107 +172,155 @@ jobs:
 
           public class MainActivity extends Activity {
               private final ExecutorService io = Executors.newSingleThreadExecutor();
-              private MqttClient mqtt;
-              private TextView cloudStatus, systemState, detailState, ackState, heroSub;
-              private Button powerButton, lowButton, highButton;
               private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+              private MqttClient mqtt;
               private SharedPreferences prefs;
+
+              private TextView cloudStatus, detailState, systemState, heroSub, ackState;
+              private Button lowButton, highButton;
+              private PowerRingView powerRing;
 
               private String host = "x10cd1d1.ala.us-east-1.emqxsl.com";
               private int port = 8883;
               private String username = "airesmart_remote_001";
               private String password = "";
               private String topicBase = "airesmart/001";
+
               private boolean motorOn = false;
               private boolean high = false;
               private boolean systemActive = false;
-              private boolean deviceSeen = false;
               private String pendingId = null;
+
               private final Runnable ackTimeout = () -> {
                   if (pendingId != null) {
                       ackState.setText("SIN CONFIRMACIÓN · revisa conexión");
                       pendingId = null;
+                      restoreRing();
                   }
               };
 
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
+
                   prefs = getSharedPreferences("airesmart", MODE_PRIVATE);
                   host = prefs.getString("host", host);
                   port = prefs.getInt("port", port);
                   username = prefs.getString("username", username);
                   password = prefs.getString("password", "");
                   topicBase = prefs.getString("topicBase", topicBase);
+
                   setContentView(buildUi());
-                  if (password.isEmpty()) showConnectionDialog(); else connectMqtt();
+
+                  if (password.isEmpty()) {
+                      showConnectionDialog();
+                  } else {
+                      connectMqtt();
+                  }
               }
 
               private View buildUi() {
                   ScrollView scroll = new ScrollView(this);
                   scroll.setFillViewport(true);
-                  scroll.setBackgroundColor(Color.rgb(232,236,241));
+                  scroll.setBackgroundColor(Color.rgb(228, 233, 239));
 
                   LinearLayout root = new LinearLayout(this);
                   root.setOrientation(LinearLayout.VERTICAL);
-                  root.setPadding(dp(22), dp(24), dp(22), dp(30));
-                  root.setGravity(Gravity.CENTER_HORIZONTAL);
-                  scroll.addView(root, new ScrollView.LayoutParams(-1,-1));
+                  root.setPadding(dp(18), dp(20), dp(18), dp(28));
+                  scroll.addView(root, new ScrollView.LayoutParams(-1, -1));
 
-                  TextView title = text("AireSmart", 31, Color.rgb(27,31,38), true);
-                  title.setOnLongClickListener(v -> { showConnectionDialog(); return true; });
-                  root.addView(title);
-                  TextView sub = text("CONTROL REMOTO", 12, Color.rgb(103,111,122), true);
-                  root.addView(sub);
-                  space(root, 18);
+                  LinearLayout header = new LinearLayout(this);
+                  header.setOrientation(LinearLayout.HORIZONTAL);
+                  header.setGravity(Gravity.CENTER_VERTICAL);
 
-                  LinearLayout statusCard = card();
-                  cloudStatus = text("● DESCONECTADO", 14, Color.rgb(211,63,63), true);
-                  statusCard.addView(cloudStatus);
-                  detailState = text("Configura MQTT para comenzar", 13, Color.rgb(98,106,116), false);
-                  statusCard.addView(detailState);
-                  root.addView(statusCard);
+                  LinearLayout brand = new LinearLayout(this);
+                  brand.setOrientation(LinearLayout.VERTICAL);
+
+                  TextView title = text("AireSmart", 29, Color.rgb(16,35,62), true);
+                  title.setGravity(Gravity.START);
+                  title.setOnLongClickListener(v -> {
+                      showConnectionDialog();
+                      return true;
+                  });
+                  brand.addView(title);
+
+                  TextView sub = text("Control inteligente", 13, Color.rgb(113,132,155), false);
+                  sub.setGravity(Gravity.START);
+                  brand.addView(sub);
+
+                  header.addView(brand, new LinearLayout.LayoutParams(0, -2, 1));
+
+                  LinearLayout conn = new LinearLayout(this);
+                  conn.setOrientation(LinearLayout.VERTICAL);
+                  conn.setGravity(Gravity.CENTER);
+                  conn.setPadding(dp(14), dp(9), dp(14), dp(9));
+                  conn.setBackground(bg(Color.rgb(237,241,244), 18));
+
+                  cloudStatus = text("● DESCONECTADO", 12, Color.rgb(201,54,64), true);
+                  detailState = text("Sin conexión", 10, Color.rgb(124,142,163), false);
+                  conn.addView(cloudStatus);
+                  conn.addView(detailState);
+
+                  header.addView(conn);
+                  root.addView(header);
                   space(root, 18);
 
                   LinearLayout hero = card();
-                  hero.setGravity(Gravity.CENTER);
-                  systemState = text("SINCRONIZANDO…", 27, Color.rgb(90,99,112), true);
-                  systemState.setGravity(Gravity.CENTER);
+                  hero.setGravity(Gravity.CENTER_HORIZONTAL);
+                  hero.setPadding(dp(18), dp(18), dp(18), dp(20));
+
+                  powerRing = new PowerRingView(this);
+                  powerRing.setMode(PowerRingView.MODE_SYNC);
+                  powerRing.setOnClickListener(v -> sendPower(!systemActive));
+                  hero.addView(powerRing, new LinearLayout.LayoutParams(dp(236), dp(236)));
+
+                  systemState = text("SINCRONIZANDO…", 25, Color.rgb(92,112,136), true);
                   hero.addView(systemState);
-                  heroSub = text("Esperando estado del AireSmart", 14, Color.rgb(97,104,114), false);
+
+                  heroSub = text("Esperando estado del AireSmart", 13, Color.rgb(113,132,155), false);
                   heroSub.setGravity(Gravity.CENTER);
                   hero.addView(heroSub);
-                  root.addView(hero);
-                  space(root, 18);
 
-                  powerButton = button("ENCENDER", Color.rgb(38,155,90));
-                  powerButton.setOnClickListener(v -> sendPower(!systemActive));
-                  root.addView(powerButton, lp(-1,56));
-                  space(root, 12);
+                  root.addView(hero);
+                  space(root, 14);
+
+                  LinearLayout speedCard = card();
+                  TextView speedTitle = text("VELOCIDAD", 11, Color.rgb(92,112,136), true);
+                  speedTitle.setGravity(Gravity.START);
+                  speedCard.addView(speedTitle);
+                  space(speedCard, 10);
 
                   LinearLayout speeds = new LinearLayout(this);
                   speeds.setOrientation(LinearLayout.HORIZONTAL);
+
                   lowButton = button("BAJA", Color.rgb(58,101,173));
                   highButton = button("ALTA", Color.rgb(240,139,42));
+
                   lowButton.setOnClickListener(v -> sendSpeed(false));
                   highButton.setOnClickListener(v -> sendSpeed(true));
+
                   speeds.addView(lowButton, new LinearLayout.LayoutParams(0, dp(54), 1));
                   spaceHorizontal(speeds, 10);
                   speeds.addView(highButton, new LinearLayout.LayoutParams(0, dp(54), 1));
-                  root.addView(speeds, lp(-1,54));
-                  space(root, 16);
 
-                  ackState = text("LISTO", 13, Color.rgb(92,100,110), false);
-                  root.addView(ackState);
-                  space(root, 18);
+                  speedCard.addView(speeds);
+                  root.addView(speedCard);
+                  space(root, 12);
 
-                  TextView adminHint = text("Mantén presionado ‘AireSmart’ para configuración", 11, Color.rgb(135,142,151), false);
-                  root.addView(adminHint);
+                  ackState = text("LISTO", 12, Color.rgb(99,119,143), false);
+                  LinearLayout ackCard = new LinearLayout(this);
+                  ackCard.setGravity(Gravity.CENTER);
+                  ackCard.setPadding(dp(14), dp(12), dp(14), dp(12));
+                  ackCard.setBackground(bg(Color.rgb(237,241,244), 16));
+                  ackCard.addView(ackState);
+                  root.addView(ackCard);
 
-                  TextView version = text("AireSmart Remote v1.0.4", 11, Color.rgb(125,132,141), false);
-                  version.setGravity(Gravity.CENTER);
-                  LinearLayout.LayoutParams vp = lp(-1,-2); vp.topMargin=dp(24);
+                  TextView version = text("AireSmart Remote v1.0.5", 10, Color.rgb(132,148,167), false);
+                  LinearLayout.LayoutParams vp = lp(-1, -2);
+                  vp.topMargin = dp(20);
                   root.addView(version, vp);
+
                   return scroll;
               }
 
@@ -252,29 +328,41 @@ jobs:
                   LinearLayout form = new LinearLayout(this);
                   form.setOrientation(LinearLayout.VERTICAL);
                   form.setPadding(dp(18), 0, dp(18), 0);
+
                   EditText hostEt = field("Broker", host, false);
                   EditText portEt = field("Puerto", String.valueOf(port), false);
                   portEt.setInputType(InputType.TYPE_CLASS_NUMBER);
                   EditText userEt = field("Usuario", username, false);
                   EditText passEt = field("Contraseña MQTT", password, true);
                   EditText topicEt = field("Topic base", topicBase, false);
-                  form.addView(hostEt); form.addView(portEt); form.addView(userEt); form.addView(passEt); form.addView(topicEt);
+
+                  form.addView(hostEt);
+                  form.addView(portEt);
+                  form.addView(userEt);
+                  form.addView(passEt);
+                  form.addView(topicEt);
 
                   new AlertDialog.Builder(this)
-                      .setTitle("Conectar AireSmart")
-                      .setMessage("Configuración de administrador · usa el usuario remoto de AireSmart.")
+                      .setTitle("Configuración AireSmart")
+                      .setMessage("Acceso de administrador")
                       .setView(form)
                       .setNegativeButton("CANCELAR", null)
-                      .setPositiveButton("CONECTAR", (d,w) -> {
+                      .setPositiveButton("CONECTAR", (d, w) -> {
                           host = hostEt.getText().toString().trim();
-                          try { port = Integer.parseInt(portEt.getText().toString().trim()); } catch(Exception e) { port = 8883; }
+                          try {
+                              port = Integer.parseInt(portEt.getText().toString().trim());
+                          } catch (Exception e) {
+                              port = 8883;
+                          }
                           username = userEt.getText().toString().trim();
                           password = passEt.getText().toString();
                           topicBase = topicEt.getText().toString().trim();
+
                           if (password.isEmpty()) {
                               toast("Falta la contraseña MQTT");
                               return;
                           }
+
                           prefs.edit()
                               .putString("host", host)
                               .putInt("port", port)
@@ -282,44 +370,69 @@ jobs:
                               .putString("password", password)
                               .putString("topicBase", topicBase)
                               .apply();
+
                           connectMqtt();
                       }).show();
               }
 
               private void connectMqtt() {
-                  setCloud("● CONECTANDO", Color.rgb(236,143,34));
-                  detailState.setText("Conectando al servicio remoto…");
-                  deviceSeen = false;
+                  setCloud("● CONECTANDO", Color.rgb(240,161,30), "Sincronizando…");
                   systemState.setText("SINCRONIZANDO…");
-                  systemState.setTextColor(Color.rgb(90,99,112));
+                  systemState.setTextColor(Color.rgb(92,112,136));
                   heroSub.setText("Esperando estado del AireSmart");
+                  powerRing.setMode(PowerRingView.MODE_SYNC);
+
                   io.execute(() -> {
                       try {
                           if (mqtt != null) {
-                              try { if (mqtt.isConnected()) mqtt.disconnect(); } catch(Exception ignored) {}
-                              try { mqtt.close(); } catch(Exception ignored) {}
+                              try {
+                                  if (mqtt.isConnected()) mqtt.disconnect();
+                              } catch (Exception ignored) {}
+                              try {
+                                  mqtt.close();
+                              } catch (Exception ignored) {}
                           }
+
                           String uri = "ssl://" + host + ":" + port;
-                          mqtt = new MqttClient(uri, "airesmart_app_" + UUID.randomUUID().toString().substring(0,8), new MemoryPersistence());
+                          mqtt = new MqttClient(
+                              uri,
+                              "airesmart_app_" + UUID.randomUUID().toString().substring(0,8),
+                              new MemoryPersistence()
+                          );
+
                           mqtt.setCallback(new MqttCallbackExtended() {
+                              @Override
                               public void connectComplete(boolean reconnect, String serverURI) {
-                                  runOnUiThread(() -> {
-                                      setCloud("● BROKER CONECTADO", Color.rgb(29,157,91));
-                                      detailState.setText(reconnect ? "Conexión recuperada · sincronizando" : "Conectado · sincronizando AireSmart");
-                                  });
+                                  runOnUiThread(() ->
+                                      setCloud(
+                                          "● BROKER",
+                                          Color.rgb(13,136,74),
+                                          reconnect ? "Reconectado" : "Conectado"
+                                      )
+                                  );
                                   subscribeTopics();
                               }
+
+                              @Override
                               public void connectionLost(Throwable cause) {
                                   runOnUiThread(() -> {
-                                      setCloud("● DESCONECTADO", Color.rgb(211,63,63));
-                                      detailState.setText(cause == null ? "Conexión perdida" : cause.getMessage());
+                                      setCloud("● OFFLINE", Color.rgb(201,54,64), "Conexión perdida");
+                                      powerRing.setMode(PowerRingView.MODE_OFFLINE);
                                   });
                               }
+
+                              @Override
                               public void messageArrived(String topic, MqttMessage message) {
-                                  handleMessage(topic, new String(message.getPayload(), StandardCharsets.UTF_8));
+                                  handleMessage(
+                                      topic,
+                                      new String(message.getPayload(), StandardCharsets.UTF_8)
+                                  );
                               }
+
+                              @Override
                               public void deliveryComplete(IMqttDeliveryToken token) {}
                           });
+
                           MqttConnectOptions o = new MqttConnectOptions();
                           o.setUserName(username);
                           o.setPassword(password.toCharArray());
@@ -328,10 +441,11 @@ jobs:
                           o.setConnectionTimeout(12);
                           o.setKeepAliveInterval(45);
                           mqtt.connect(o);
-                      } catch(Exception e) {
+
+                      } catch (Exception e) {
                           runOnUiThread(() -> {
-                              setCloud("● ERROR", Color.rgb(211,63,63));
-                              detailState.setText(e.getClass().getSimpleName() + ": " + safe(e.getMessage()));
+                              setCloud("● ERROR", Color.rgb(201,54,64), safe(e.getMessage()));
+                              powerRing.setMode(PowerRingView.MODE_OFFLINE);
                           });
                       }
                   });
@@ -343,11 +457,14 @@ jobs:
                           mqtt.subscribe(topicBase + "/state", 1);
                           mqtt.subscribe(topicBase + "/ack", 1);
                           mqtt.subscribe(topicBase + "/status", 1);
-                      } catch(Exception e) {
-                          runOnUiThread(() -> {
-                              setCloud("● ERROR DE SUSCRIPCIÓN", Color.rgb(211,63,63));
-                              detailState.setText(safe(e.getMessage()));
-                          });
+                      } catch (Exception e) {
+                          runOnUiThread(() ->
+                              setCloud(
+                                  "● ERROR",
+                                  Color.rgb(201,54,64),
+                                  "Suscripción MQTT"
+                              )
+                          );
                       }
                   });
               }
@@ -355,52 +472,69 @@ jobs:
               private void handleMessage(String topic, String payload) {
                   try {
                       JSONObject j = new JSONObject(payload);
+
                       if (topic.endsWith("/state")) {
-                          deviceSeen = true;
                           motorOn = j.optBoolean("motor", false);
                           high = j.optBoolean("high", false);
-                          String state = j.optString("state", motorOn ? "ENCENDIDO" : "APAGADO");
+                          String state = j.optString(
+                              "state",
+                              motorOn ? "ENCENDIDO" : "APAGADO"
+                          );
                           long soak = j.optLong("soakRemaining", 0);
+
                           runOnUiThread(() -> {
-                              setCloud("● AIRESMART EN LÍNEA", Color.rgb(29,157,91));
-                              detailState.setText("Estado sincronizado");
+                              setCloud(
+                                  "● EN LÍNEA",
+                                  Color.rgb(13,136,74),
+                                  "Estado sincronizado"
+                              );
                               paintState(state, soak);
                           });
+
                       } else if (topic.endsWith("/status")) {
                           boolean online = j.optBoolean("online", false);
-                          deviceSeen = online;
                           runOnUiThread(() -> {
-                              setCloud(online ? "● AIRESMART EN LÍNEA" : "● AIRESMART OFFLINE", online ? Color.rgb(29,157,91) : Color.rgb(211,63,63));
-                              detailState.setText(online ? "Dispositivo conectado" : "Dispositivo sin conexión");
+                              setCloud(
+                                  online ? "● EN LÍNEA" : "● OFFLINE",
+                                  online ? Color.rgb(13,136,74) : Color.rgb(201,54,64),
+                                  online ? "AireSmart conectado" : "AireSmart sin conexión"
+                              );
+                              if (!online) powerRing.setMode(PowerRingView.MODE_OFFLINE);
                           });
+
                       } else if (topic.endsWith("/ack")) {
                           String id = j.optString("id", "");
                           if (pendingId != null && !pendingId.equals(id)) return;
+
                           mainHandler.removeCallbacks(ackTimeout);
                           pendingId = null;
+
                           boolean accepted = j.optBoolean("accepted", false);
-                          String result = j.optString("result", accepted ? "accepted" : "rejected");
+                          String result = j.optString(
+                              "result",
+                              accepted ? "accepted" : "rejected"
+                          );
+
                           motorOn = j.optBoolean("motor", motorOn);
                           high = j.optBoolean("high", high);
-                          String state = j.optString("state", motorOn ? "ENCENDIDO" : "APAGADO");
+                          String state = j.optString(
+                              "state",
+                              motorOn ? "ENCENDIDO" : "APAGADO"
+                          );
+
                           runOnUiThread(() -> {
-                              ackState.setText(accepted ? "ORDEN CONFIRMADA" : "ORDEN RECHAZADA · " + friendlyResult(result));
+                              ackState.setText(
+                                  accepted
+                                      ? "ORDEN CONFIRMADA"
+                                      : "ORDEN RECHAZADA · " + friendlyResult(result)
+                              );
                               paintState(state, 0);
                           });
                       }
-                  } catch(Exception e) {
+
+                  } catch (Exception e) {
                       runOnUiThread(() -> ackState.setText("MENSAJE MQTT NO VÁLIDO"));
                   }
-              }
-
-              private String friendlyResult(String result) {
-                  if ("already_on_or_starting".equals(result)) return "ya estaba encendido";
-                  if ("already_off".equals(result)) return "ya estaba apagado";
-                  if ("already_low".equals(result)) return "ya estaba en baja";
-                  if ("already_high".equals(result)) return "ya estaba en alta";
-                  if ("not_ready".equals(result)) return "espera a que termine el remojo";
-                  if ("duplicate_ignored".equals(result)) return "orden duplicada";
-                  return result == null || result.isEmpty() ? "sin detalle" : result;
               }
 
               private void sendPower(boolean on) {
@@ -412,25 +546,42 @@ jobs:
               }
 
               private void sendCommand(String action, String value, boolean boolValue) {
-                  if (mqtt == null || !mqtt.isConnected()) { toast("AireSmart no está conectado"); return; }
-                  String id = System.currentTimeMillis() + "-" + UUID.randomUUID().toString().substring(0,6);
+                  if (mqtt == null || !mqtt.isConnected()) {
+                      toast("AireSmart no está conectado");
+                      return;
+                  }
+
+                  String id =
+                      System.currentTimeMillis() + "-" +
+                      UUID.randomUUID().toString().substring(0,6);
+
                   String json = boolValue
                       ? "{\"id\":\""+id+"\",\"action\":\""+action+"\",\"value\":"+value+"}"
                       : "{\"id\":\""+id+"\",\"action\":\""+action+"\",\"value\":\""+value+"\"}";
+
                   pendingId = id;
                   ackState.setText("ENVIANDO ORDEN…");
+                  powerRing.setMode(PowerRingView.MODE_PENDING);
+
                   mainHandler.removeCallbacks(ackTimeout);
                   mainHandler.postDelayed(ackTimeout, 8000);
+
                   io.execute(() -> {
                       try {
-                          MqttMessage m = new MqttMessage(json.getBytes(StandardCharsets.UTF_8));
-                          m.setQos(1); m.setRetained(false);
+                          MqttMessage m =
+                              new MqttMessage(json.getBytes(StandardCharsets.UTF_8));
+                          m.setQos(1);
+                          m.setRetained(false);
                           mqtt.publish(topicBase + "/cmd", m);
-                      } catch(Exception e) {
+
+                      } catch (Exception e) {
                           runOnUiThread(() -> {
                               mainHandler.removeCallbacks(ackTimeout);
                               pendingId = null;
-                              ackState.setText("ERROR AL ENVIAR · " + safe(e.getMessage()));
+                              ackState.setText(
+                                  "ERROR AL ENVIAR · " + safe(e.getMessage())
+                              );
+                              restoreRing();
                           });
                       }
                   });
@@ -438,60 +589,322 @@ jobs:
 
               private void paintState(String state, long soak) {
                   String upper = state == null ? "--" : state.toUpperCase();
+
                   systemActive = soak > 0 || !upper.contains("APAGADO");
+
                   if (soak > 0 || upper.contains("REMOJ")) {
                       systemState.setText("REMOJANDO");
-                      systemState.setTextColor(Color.rgb(41,135,218));
-                      heroSub.setText(soak > 0 ? "Preparando enfriamiento · " + soak + " s" : "Preparando enfriamiento");
+                      systemState.setTextColor(Color.rgb(13,125,246));
+                      heroSub.setText(
+                          soak > 0
+                              ? "Preparando enfriamiento · " + soak + " s"
+                              : "Preparando enfriamiento"
+                      );
+                      powerRing.setMode(PowerRingView.MODE_SOAK);
+
                   } else if (motorOn || upper.contains("ENCENDIDO")) {
-                      systemState.setText(high ? "ENCENDIDO · ALTA" : "ENCENDIDO · BAJA");
-                      systemState.setTextColor(Color.rgb(27,151,88));
-                      heroSub.setText("Funcionando correctamente");
+                      systemState.setText(
+                          high ? "ENCENDIDO · ALTA" : "ENCENDIDO · BAJA"
+                      );
+                      systemState.setTextColor(Color.rgb(7,136,74));
+                      heroSub.setText("Funcionamiento normal");
                       systemActive = true;
+                      powerRing.setMode(PowerRingView.MODE_ON);
+
                   } else {
                       systemState.setText("APAGADO");
-                      systemState.setTextColor(Color.rgb(210,57,57));
+                      systemState.setTextColor(Color.rgb(201,54,64));
                       heroSub.setText("Equipo en espera");
                       systemActive = false;
+                      powerRing.setMode(PowerRingView.MODE_OFF);
                   }
-                  powerButton.setText(systemActive ? "APAGAR" : "ENCENDER");
-                  powerButton.setBackground(bg(systemActive ? Color.rgb(207,61,61) : Color.rgb(38,155,90), 14));
-                  lowButton.setEnabled(motorOn);
-                  highButton.setEnabled(motorOn);
-                  lowButton.setAlpha(motorOn ? 1f : 0.55f);
-                  highButton.setAlpha(motorOn ? 1f : 0.55f);
+
+                  paintSpeedButtons();
               }
 
-              private void setCloud(String txt, int color) { cloudStatus.setText(txt); cloudStatus.setTextColor(color); }
-              private String safe(String s) { return s == null ? "sin detalle" : s; }
-              private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }
+              private void restoreRing() {
+                  if (!systemActive) {
+                      powerRing.setMode(PowerRingView.MODE_OFF);
+                  } else if (!motorOn) {
+                      powerRing.setMode(PowerRingView.MODE_SOAK);
+                  } else {
+                      powerRing.setMode(PowerRingView.MODE_ON);
+                  }
+              }
+
+              private void paintSpeedButtons() {
+                  boolean ready = motorOn;
+
+                  lowButton.setEnabled(ready);
+                  highButton.setEnabled(ready);
+
+                  if (!ready) {
+                      lowButton.setAlpha(0.45f);
+                      highButton.setAlpha(0.45f);
+                      return;
+                  }
+
+                  lowButton.setAlpha(1f);
+                  highButton.setAlpha(1f);
+
+                  if (high) {
+                      lowButton.setBackground(bg(Color.rgb(220,226,233), 14));
+                      lowButton.setTextColor(Color.rgb(92,112,136));
+                      highButton.setBackground(bg(Color.rgb(240,139,42), 14));
+                      highButton.setTextColor(Color.WHITE);
+                  } else {
+                      lowButton.setBackground(bg(Color.rgb(13,125,246), 14));
+                      lowButton.setTextColor(Color.WHITE);
+                      highButton.setBackground(bg(Color.rgb(220,226,233), 14));
+                      highButton.setTextColor(Color.rgb(92,112,136));
+                  }
+              }
+
+              private String friendlyResult(String result) {
+                  if ("already_on_or_starting".equals(result)) return "ya estaba encendido";
+                  if ("already_off".equals(result)) return "ya estaba apagado";
+                  if ("already_low".equals(result)) return "ya estaba en baja";
+                  if ("already_high".equals(result)) return "ya estaba en alta";
+                  if ("not_ready".equals(result)) return "espera a que termine el remojo";
+                  if ("duplicate_ignored".equals(result)) return "orden duplicada";
+                  return result == null || result.isEmpty()
+                      ? "sin detalle"
+                      : result;
+              }
+
+              private void setCloud(String txt, int color, String detail) {
+                  cloudStatus.setText(txt);
+                  cloudStatus.setTextColor(color);
+                  detailState.setText(detail);
+              }
+
+              private String safe(String s) {
+                  return s == null ? "sin detalle" : s;
+              }
+
+              private void toast(String s) {
+                  Toast.makeText(this, s, Toast.LENGTH_SHORT).show();
+              }
 
               private TextView text(String s, int sp, int color, boolean bold) {
-                  TextView v = new TextView(this); v.setText(s); v.setTextSize(sp); v.setTextColor(color); v.setGravity(Gravity.CENTER_HORIZONTAL);
-                  if (bold) v.setTypeface(v.getTypeface(), android.graphics.Typeface.BOLD); return v;
+                  TextView v = new TextView(this);
+                  v.setText(s);
+                  v.setTextSize(sp);
+                  v.setTextColor(color);
+                  v.setGravity(Gravity.CENTER_HORIZONTAL);
+                  if (bold) {
+                      v.setTypeface(v.getTypeface(), Typeface.BOLD);
+                  }
+                  return v;
               }
-              private LinearLayout card() {
-                  LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.setPadding(dp(20),dp(18),dp(20),dp(18));
-                  l.setBackground(bg(Color.WHITE,18)); l.setElevation(dp(2)); return l;
-              }
-              private Button button(String s, int color) {
-                  Button b = new Button(this); b.setText(s); b.setTextColor(Color.WHITE); b.setTextSize(15); b.setTypeface(b.getTypeface(), android.graphics.Typeface.BOLD);
-                  b.setBackground(bg(color,14)); b.setAllCaps(false); return b;
-              }
-              private EditText field(String hint, String value, boolean secret) {
-                  EditText e = new EditText(this); e.setHint(hint); e.setText(value); e.setSingleLine(true); e.setTextSize(15);
-                  if(secret) e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-                  LinearLayout.LayoutParams p=lp(-1,54); p.bottomMargin=dp(6); e.setLayoutParams(p); return e;
-              }
-              private GradientDrawable bg(int color, int radius) { GradientDrawable g=new GradientDrawable(); g.setColor(color); g.setCornerRadius(dp(radius)); return g; }
-              private void space(LinearLayout l,int h){ View v=new View(this); l.addView(v,new LinearLayout.LayoutParams(1,dp(h))); }
-              private void spaceHorizontal(LinearLayout l,int w){ View v=new View(this); l.addView(v,new LinearLayout.LayoutParams(dp(w),1)); }
-              private LinearLayout.LayoutParams lp(int w,int h){ return new LinearLayout.LayoutParams(w, h<0?h:dp(h)); }
-              private int dp(int v){ return Math.round(v*getResources().getDisplayMetrics().density); }
 
-              @Override protected void onDestroy() {
+              private LinearLayout card() {
+                  LinearLayout l = new LinearLayout(this);
+                  l.setOrientation(LinearLayout.VERTICAL);
+                  l.setPadding(dp(18), dp(18), dp(18), dp(18));
+                  l.setBackground(bg(Color.rgb(245,246,248), 22));
+                  l.setElevation(dp(2));
+                  return l;
+              }
+
+              private Button button(String s, int color) {
+                  Button b = new Button(this);
+                  b.setText(s);
+                  b.setTextColor(Color.WHITE);
+                  b.setTextSize(14);
+                  b.setTypeface(b.getTypeface(), Typeface.BOLD);
+                  b.setBackground(bg(color, 14));
+                  b.setAllCaps(false);
+                  return b;
+              }
+
+              private EditText field(String hint, String value, boolean secret) {
+                  EditText e = new EditText(this);
+                  e.setHint(hint);
+                  e.setText(value);
+                  e.setSingleLine(true);
+                  e.setTextSize(15);
+
+                  if (secret) {
+                      e.setInputType(
+                          InputType.TYPE_CLASS_TEXT |
+                          InputType.TYPE_TEXT_VARIATION_PASSWORD
+                      );
+                  }
+
+                  LinearLayout.LayoutParams p = lp(-1, 54);
+                  p.bottomMargin = dp(6);
+                  e.setLayoutParams(p);
+                  return e;
+              }
+
+              private GradientDrawable bg(int color, int radius) {
+                  GradientDrawable g = new GradientDrawable();
+                  g.setColor(color);
+                  g.setCornerRadius(dp(radius));
+                  return g;
+              }
+
+              private void space(LinearLayout l, int h) {
+                  View v = new View(this);
+                  l.addView(v, new LinearLayout.LayoutParams(1, dp(h)));
+              }
+
+              private void spaceHorizontal(LinearLayout l, int w) {
+                  View v = new View(this);
+                  l.addView(v, new LinearLayout.LayoutParams(dp(w), 1));
+              }
+
+              private LinearLayout.LayoutParams lp(int w, int h) {
+                  return new LinearLayout.LayoutParams(
+                      w,
+                      h < 0 ? h : dp(h)
+                  );
+              }
+
+              private int dp(int v) {
+                  return Math.round(
+                      v * getResources().getDisplayMetrics().density
+                  );
+              }
+
+              @Override
+              protected void onDestroy() {
                   super.onDestroy();
-                  io.execute(() -> { try { if(mqtt!=null){ if(mqtt.isConnected()) mqtt.disconnect(); mqtt.close(); } } catch(Exception ignored){} });
+                  io.execute(() -> {
+                      try {
+                          if (mqtt != null) {
+                              if (mqtt.isConnected()) mqtt.disconnect();
+                              mqtt.close();
+                          }
+                      } catch (Exception ignored) {}
+                  });
+              }
+
+              public static class PowerRingView extends View {
+                  public static final int MODE_SYNC = 0;
+                  public static final int MODE_OFF = 1;
+                  public static final int MODE_SOAK = 2;
+                  public static final int MODE_ON = 3;
+                  public static final int MODE_PENDING = 4;
+                  public static final int MODE_OFFLINE = 5;
+
+                  private final Paint track = new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint center = new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint icon = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+                  private int mode = MODE_SYNC;
+
+                  public PowerRingView(Context context) {
+                      super(context);
+                      setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+
+                      track.setStyle(Paint.Style.STROKE);
+                      track.setStrokeWidth(dpLocal(12));
+                      track.setColor(Color.rgb(215,224,232));
+
+                      ring.setStyle(Paint.Style.STROKE);
+                      ring.setStrokeCap(Paint.Cap.ROUND);
+                      ring.setStrokeWidth(dpLocal(13));
+
+                      center.setStyle(Paint.Style.FILL);
+                      center.setColor(Color.rgb(248,249,251));
+
+                      icon.setStyle(Paint.Style.STROKE);
+                      icon.setStrokeCap(Paint.Cap.ROUND);
+                      icon.setStrokeWidth(dpLocal(5));
+                  }
+
+                  public void setMode(int m) {
+                      mode = m;
+                      invalidate();
+                  }
+
+                  @Override
+                  protected void onDraw(Canvas c) {
+                      super.onDraw(c);
+
+                      float w = getWidth();
+                      float h = getHeight();
+                      float cx = w / 2f;
+                      float cy = h / 2f;
+                      float radius = Math.min(w, h) * 0.39f;
+
+                      int color;
+                      switch (mode) {
+                          case MODE_OFF:
+                              color = Color.rgb(227,77,89);
+                              break;
+                          case MODE_SOAK:
+                              color = Color.rgb(13,125,246);
+                              break;
+                          case MODE_ON:
+                              color = Color.rgb(19,170,104);
+                              break;
+                          case MODE_PENDING:
+                              color = Color.rgb(240,161,30);
+                              break;
+                          case MODE_OFFLINE:
+                              color = Color.rgb(132,148,167);
+                              break;
+                          default:
+                              color = Color.rgb(92,112,136);
+                              break;
+                      }
+
+                      float outer = radius + dpLocal(18);
+                      RectF oval = new RectF(
+                          cx - outer, cy - outer,
+                          cx + outer, cy + outer
+                      );
+
+                      c.drawOval(oval, track);
+
+                      ring.setColor(color);
+                      ring.setShadowLayer(
+                          dpLocal(15),
+                          0,
+                          0,
+                          color
+                      );
+
+                      float sweep = mode == MODE_SYNC ? 265f : 360f;
+                      c.drawArc(oval, -90f, sweep, false, ring);
+                      ring.clearShadowLayer();
+
+                      center.setShadowLayer(
+                          dpLocal(9),
+                          0,
+                          dpLocal(4),
+                          0x25000000
+                      );
+                      c.drawCircle(cx, cy, radius, center);
+                      center.clearShadowLayer();
+
+                      icon.setColor(color);
+
+                      float iconR = radius * 0.34f;
+                      RectF p = new RectF(
+                          cx - iconR,
+                          cy - iconR,
+                          cx + iconR,
+                          cy + iconR
+                      );
+
+                      c.drawArc(p, -44f, 268f, false, icon);
+                      c.drawLine(
+                          cx,
+                          cy - iconR * 1.05f,
+                          cx,
+                          cy - iconR * 0.05f,
+                          icon
+                      );
+                  }
+
+                  private float dpLocal(float v) {
+                      return v * getResources().getDisplayMetrics().density;
+                  }
               }
           }
           EOF
@@ -500,10 +913,10 @@ jobs:
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk AireSmart_Remote_v1.0.4.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk AireSmart_Remote_v1.0.5.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.4
-          path: AireSmart_Remote_v1.0.4.apk
+          name: AireSmart-Remote-v1.0.5
+          path: AireSmart_Remote_v1.0.5.apk
