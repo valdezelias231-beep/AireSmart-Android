@@ -102,8 +102,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 14
-                  versionName "1.0.13"
+                  versionCode 15
+                  versionName "1.0.14"
               }
 
               signingConfigs {
@@ -380,6 +380,8 @@ jobs:
                   codeEt.setTextSize(20);
                   codeEt.setGravity(Gravity.CENTER);
                   codeEt.setAllCaps(true);
+                  codeEt.setTextColor(Color.rgb(17,17,17));
+                  codeEt.setHintTextColor(Color.rgb(156,163,175));
                   codeEt.setPadding(dp(14), 0, dp(14), 0);
                   codeEt.setBackground(bg(Color.WHITE, 14));
                   card.addView(codeEt, lp(-1, 58));
@@ -723,7 +725,7 @@ jobs:
                   ackCard.addView(ackState);
                   root.addView(ackCard);
 
-                  TextView version = text("AireSmart Remote v1.0.13", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.14", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -937,7 +939,13 @@ jobs:
                                       : "ORDEN RECHAZADA · " + friendlyResult(result),
                                   accepted
                               );
-                              paintState(state, 0);
+
+                              // El ACK no incluye soakRemaining.
+                              // Si sigue REMOJANDO esperamos el /state retenido
+                              // para no reiniciar el aro desde cero.
+                              if (!state.toUpperCase().contains("REMOJ")) {
+                                  paintState(state, 0);
+                              }
                           });
                       }
 
@@ -1004,24 +1012,19 @@ jobs:
                   systemActive = soakingNow || !upper.contains("APAGADO");
 
                   if (soakingNow) {
-                      if (soak > 0) {
-                          if (!wasSoaking || soakTotalSeconds <= 0 || soak > soakTotalSeconds) {
-                              soakTotalSeconds = soak;
-                          }
-                          lastSoakRemaining = soak;
-                      }
-
-                      float progress = 0f;
-                      if (soakTotalSeconds > 0) {
-                          long remaining = soak > 0 ? soak : lastSoakRemaining;
-                          progress = 1f - ((float) remaining / (float) soakTotalSeconds);
-                      }
-                      progress = Math.max(0f, Math.min(1f, progress));
-
                       systemState.setText("REMOJANDO");
                       systemState.setTextColor(Color.rgb(13,125,246));
                       heroSub.setText("Preparando enfriamiento");
-                      powerRing.setSoakProgress(progress);
+
+                      // El ciclo de remojo del firmware es de 120 s.
+                      // El ESP32 publica soakRemaining real, por lo que el aro
+                      // debe partir de 1 - (restante / 120), incluso si la APK
+                      // se abre a la mitad del ciclo.
+                      long safeRemaining = Math.max(0L, Math.min(120L, soak));
+
+                      powerRing.setMode(PowerRingView.MODE_SOAK);
+                      powerRing.setSoakRemaining(safeRemaining);
+
                       wasSoaking = true;
 
                   } else if (motorOn || upper.contains("ENCENDIDO")) {
@@ -1360,22 +1363,42 @@ jobs:
                       invalidate();
                   }
 
-                  public void setSoakProgress(float progress) {
-                      float target = Math.max(0f, Math.min(1f, progress));
-
+                  public void setSoakRemaining(long remainingSeconds) {
                       if (mode != MODE_SOAK) {
                           mode = MODE_SOAK;
                           startModeAnimation();
                       }
 
+                      long safeRemaining =
+                          Math.max(0L, Math.min(120L, remainingSeconds));
+
+                      float targetProgress =
+                          1f - (safeRemaining / 120f);
+
+                      targetProgress =
+                          Math.max(0.02f, Math.min(1f, targetProgress));
+
                       if (progressAnimator != null) {
                           progressAnimator.cancel();
                       }
 
-                      progressAnimator = ValueAnimator.ofFloat(soakProgress, target);
-                      progressAnimator.setDuration(450);
+                      // Corrige suavemente a la posición real que reporta
+                      // el ESP32 y continúa llenando hasta terminar el remojo.
+                      soakProgress = targetProgress;
+
+                      if (safeRemaining == 0L) {
+                          soakProgress = 1f;
+                          invalidate();
+                          return;
+                      }
+
+                      progressAnimator =
+                          ValueAnimator.ofFloat(targetProgress, 1f);
+                      progressAnimator.setDuration(
+                          Math.max(450L, safeRemaining * 1000L)
+                      );
                       progressAnimator.setInterpolator(
-                          new AccelerateDecelerateInterpolator()
+                          new LinearInterpolator()
                       );
                       progressAnimator.addUpdateListener(a -> {
                           soakProgress = (float) a.getAnimatedValue();
@@ -1595,7 +1618,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.13_Pairing_Pilot.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.14_Sync_Fix.apk
 
       - name: Verify APK signature
         env:
@@ -1605,7 +1628,7 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.13_Pairing_Pilot.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.14_Sync_Fix.apk
 
       - name: Remove decrypted key
         if: always()
@@ -1615,5 +1638,5 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.13-Pairing-Pilot
-          path: AireSmart_Remote_v1.0.13_Pairing_Pilot.apk
+          name: AireSmart-Remote-v1.0.14-Sync-Fix
+          path: AireSmart_Remote_v1.0.14_Sync_Fix.apk
