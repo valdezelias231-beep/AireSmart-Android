@@ -1,1 +1,103 @@
+name: Setup AireSmart Signing Key
 
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  setup-signing:
+    runs-on: ubuntu-latest
+
+    env:
+      SIGNING_PASSWORD: ${{ secrets.AIRESMART_SIGNING_PASSWORD }}
+      KEY_ALIAS: airesmart
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify signing secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SIGNING_PASSWORD:-}" ]; then
+            echo "ERROR: AIRESMART_SIGNING_PASSWORD is not configured."
+            exit 1
+          fi
+
+          if [ "${#SIGNING_PASSWORD}" -lt 24 ]; then
+            echo "ERROR: Signing password must be at least 24 characters."
+            exit 1
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Stop if permanent key already exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f ".github/signing/airesmart-release.jks.enc" ]; then
+            echo "Permanent signing key already exists."
+            echo "This workflow will not overwrite it."
+            exit 1
+          fi
+
+      - name: Generate permanent AireSmart signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p .github/signing
+
+          keytool -genkeypair \
+            -v \
+            -keystore /tmp/airesmart-release.jks \
+            -storepass "$SIGNING_PASSWORD" \
+            -keypass "$SIGNING_PASSWORD" \
+            -alias "$KEY_ALIAS" \
+            -keyalg RSA \
+            -keysize 4096 \
+            -validity 18250 \
+            -dname "CN=AireSmart, OU=AireSmart, O=AireSmart, L=Chihuahua, ST=Chihuahua, C=MX"
+
+      - name: Encrypt signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          openssl enc \
+            -aes-256-cbc \
+            -salt \
+            -pbkdf2 \
+            -iter 250000 \
+            -in /tmp/airesmart-release.jks \
+            -out .github/signing/airesmart-release.jks.enc \
+            -pass env:SIGNING_PASSWORD
+
+          rm -f /tmp/airesmart-release.jks
+
+      - name: Validate encrypted file
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -s .github/signing/airesmart-release.jks.enc
+          echo "Encrypted AireSmart signing key created successfully."
+
+      - name: Commit encrypted signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add .github/signing/airesmart-release.jks.enc
+          git commit -m "Add encrypted AireSmart signing key"
+          git push
