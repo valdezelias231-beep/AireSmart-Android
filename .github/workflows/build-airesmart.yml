@@ -102,8 +102,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 17
-                  versionName "1.0.16"
+                  versionCode 18
+                  versionName "1.0.17"
               }
 
               signingConfigs {
@@ -691,6 +691,12 @@ jobs:
                           String newDeviceId =
                               response.optString("device_id", "").trim();
 
+                          String newPairingRole =
+                              response.optString(
+                                  "pairing_role",
+                                  ""
+                              ).trim();
+
                           JSONObject mqttInfo =
                               response.optJSONObject("mqtt");
 
@@ -766,6 +772,7 @@ jobs:
                           prefs.edit()
                               .putBoolean("paired", true)
                               .putString("deviceId", deviceId)
+                              .putString("pairingRole", newPairingRole)
                               .putString("host", host)
                               .putInt("port", port)
                               .putString("username", username)
@@ -811,16 +818,38 @@ jobs:
                   if ("pairing_code_expired".equals(error)) {
                       return "El código ya venció";
                   }
+                  if ("invalid_code".equals(error)) {
+                      return "Formato de código no válido [invalid_code]";
+                  }
+                  if ("invalid_owner_id".equals(error)) {
+                      return "Identificador del teléfono no válido [invalid_owner_id]";
+                  }
+                  if ("phone_already_linked".equals(error)) {
+                      return "Este teléfono ya está vinculado [phone_already_linked]";
+                  }
+                  if ("owner_already_exists".equals(error)) {
+                      return "Este AireSmart ya tiene propietario [owner_already_exists]";
+                  }
+                  if ("invalid_pairing_role".equals(error)) {
+                      return "Tipo de vinculación no válido [invalid_pairing_role]";
+                  }
+                  if ("device_credentials_unavailable".equals(error)) {
+                      return "No se pudieron abrir las credenciales del equipo [device_credentials_unavailable]";
+                  }
                   if ("device_already_paired".equals(error)) {
-                      return "Este AireSmart ya está vinculado";
+                      return "Este AireSmart ya está vinculado [device_already_paired]";
                   }
                   if ("device_not_configured".equals(error)) {
-                      return "El AireSmart aún no está preparado";
+                      return "El AireSmart aún no está preparado [device_not_configured]";
                   }
                   if ("pairing_conflict".equals(error)) {
-                      return "No se pudo completar la vinculación";
+                      return "Conflicto al guardar la vinculación [pairing_conflict]";
                   }
-                  return "No se pudo vincular. Intenta de nuevo.";
+                  if ("internal_error".equals(error)) {
+                      return "Error interno del servicio [internal_error]";
+                  }
+
+                  return "No se pudo vincular [" + error + "]";
               }
 
               private View buildUi() {
@@ -943,7 +972,7 @@ jobs:
                   ackCard.addView(ackState);
                   root.addView(ackCard);
 
-                  TextView version = text("AireSmart Remote v1.0.16", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.17", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -1845,7 +1874,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.16_Keystore_Fix.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.17_Family_Pairing_Diagnostics.apk
 
       - name: Verify APK signature
         env:
@@ -1855,7 +1884,7 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.16_Keystore_Fix.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.17_Family_Pairing_Diagnostics.apk
 
       - name: Remove decrypted key
         if: always()
@@ -1865,5 +1894,5 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.16-Keystore-Fix
-          path: AireSmart_Remote_v1.0.16_Keystore_Fix.apk
+          name: AireSmart-Remote-v1.0.17-Family-Pairing-Diagnostics
+          path: AireSmart_Remote_v1.0.17_Family_Pairing_Diagnostics.apk
