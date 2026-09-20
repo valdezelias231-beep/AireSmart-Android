@@ -72,8 +72,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 7
-                  versionName "1.0.6"
+                  versionCode 8
+                  versionName "1.0.7"
               }
 
               buildTypes {
@@ -292,7 +292,7 @@ jobs:
                   powerRing.setMode(PowerRingView.MODE_SYNC);
                   powerRing.setOnClickListener(v -> sendPower(!systemActive));
                   addPressEffect(powerRing);
-                  hero.addView(powerRing, new LinearLayout.LayoutParams(dp(236), dp(236)));
+                  hero.addView(powerRing, new LinearLayout.LayoutParams(dp(248), dp(248)));
 
                   systemState = text("SINCRONIZANDO…", 25, Color.rgb(92,112,136), true);
                   hero.addView(systemState);
@@ -337,7 +337,7 @@ jobs:
                   ackCard.addView(ackState);
                   root.addView(ackCard);
 
-                  TextView version = text("AireSmart Remote v1.0.6 · Xiaomi Style", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.7", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -904,6 +904,7 @@ jobs:
                   public static final int MODE_OFFLINE = 5;
 
                   private final Paint track = new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
                   private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
                   private final Paint center = new Paint(Paint.ANTI_ALIAS_FLAG);
                   private final Paint icon = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -925,6 +926,10 @@ jobs:
                       track.setStyle(Paint.Style.STROKE);
                       track.setStrokeWidth(dpLocal(12));
                       track.setColor(Color.rgb(215,224,232));
+
+                      glow.setStyle(Paint.Style.STROKE);
+                      glow.setStrokeCap(Paint.Cap.ROUND);
+                      glow.setStrokeWidth(dpLocal(30));
 
                       ring.setStyle(Paint.Style.STROKE);
                       ring.setStrokeCap(Paint.Cap.ROUND);
@@ -1007,7 +1012,7 @@ jobs:
                       float h = getHeight();
                       float cx = w / 2f;
                       float cy = h / 2f;
-                      float radius = Math.min(w, h) * 0.39f;
+                      float radius = Math.min(w, h) * 0.35f;
 
                       c.save();
                       c.scale(pulse, pulse, cx, cy);
@@ -1041,7 +1046,7 @@ jobs:
                           color = Color.rgb(r, g, b);
                       }
 
-                      float outer = radius + dpLocal(18);
+                      float outer = radius + dpLocal(12);
                       RectF oval = new RectF(
                           cx - outer, cy - outer,
                           cx + outer, cy + outer
@@ -1049,19 +1054,46 @@ jobs:
 
                       c.drawOval(oval, track);
 
-                      ring.setColor(color);
-                      ring.setShadowLayer(
-                          dpLocal(15 + 7 * flash),
-                          0,
-                          0,
-                          color
-                      );
-
                       float sweep;
                       if (mode == MODE_SYNC) sweep = 250f;
                       else if (mode == MODE_SOAK || mode == MODE_PENDING) sweep = 285f;
                       else sweep = 360f;
 
+                      // Circular glow: painted as concentric arcs instead of a rectangular shadow.
+                      int glowAlphaOuter = Math.min(90, 28 + (int)(35 * flash));
+                      int glowAlphaInner = Math.min(120, 48 + (int)(45 * flash));
+
+                      glow.setStrokeWidth(dpLocal(34 + 5 * flash));
+                      glow.setColor(Color.argb(
+                          glowAlphaOuter,
+                          Color.red(color),
+                          Color.green(color),
+                          Color.blue(color)
+                      ));
+                      c.drawArc(
+                          oval,
+                          -90f + rotation,
+                          sweep,
+                          false,
+                          glow
+                      );
+
+                      glow.setStrokeWidth(dpLocal(23 + 3 * flash));
+                      glow.setColor(Color.argb(
+                          glowAlphaInner,
+                          Color.red(color),
+                          Color.green(color),
+                          Color.blue(color)
+                      ));
+                      c.drawArc(
+                          oval,
+                          -90f + rotation,
+                          sweep,
+                          false,
+                          glow
+                      );
+
+                      ring.setColor(color);
                       c.drawArc(
                           oval,
                           -90f + rotation,
@@ -1069,7 +1101,6 @@ jobs:
                           false,
                           ring
                       );
-                      ring.clearShadowLayer();
 
                       center.setShadowLayer(
                           dpLocal(9),
@@ -1121,10 +1152,10 @@ jobs:
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk AireSmart_Remote_v1.0.6_Xiaomi_Style.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk AireSmart_Remote_v1.0.7_Ring_Fix.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.6-Xiaomi-Style
-          path: AireSmart_Remote_v1.0.6_Xiaomi_Style.apk
+          name: AireSmart-Remote-v1.0.7-Ring-Fix
+          path: AireSmart_Remote_v1.0.7_Ring_Fix.apk
