@@ -102,8 +102,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 13
-                  versionName "1.0.12"
+                  versionCode 14
+                  versionName "1.0.13"
               }
 
               signingConfigs {
@@ -225,6 +225,12 @@ jobs:
           import java.util.UUID;
           import java.util.concurrent.ExecutorService;
           import java.util.concurrent.Executors;
+          import java.net.URL;
+          import javax.net.ssl.HttpsURLConnection;
+          import java.io.BufferedReader;
+          import java.io.InputStream;
+          import java.io.InputStreamReader;
+          import java.io.OutputStream;
 
           public class MainActivity extends Activity {
               private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -237,11 +243,17 @@ jobs:
               private Button lowButton, highButton;
               private PowerRingView powerRing;
 
+              private static final String PAIR_API =
+                  "https://airesmart-pairing-api.valdezelias231.workers.dev/pair";
+
               private String host = "x10cd1d1.ala.us-east-1.emqxsl.com";
               private int port = 8883;
               private String username = "airesmart_remote_001";
               private String password = "";
               private String topicBase = "airesmart/001";
+              private String deviceId = "";
+              private String ownerId = "";
+              private boolean paired = false;
 
               private boolean motorOn = false;
               private boolean high = false;
@@ -280,7 +292,24 @@ jobs:
                   username = prefs.getString("username", username);
                   password = prefs.getString("password", "");
                   topicBase = prefs.getString("topicBase", topicBase);
+                  deviceId = prefs.getString("deviceId", "");
+                  paired = prefs.getBoolean("paired", false);
 
+                  ownerId = prefs.getString("ownerId", "");
+                  if (ownerId.isEmpty()) {
+                      ownerId = "ANDROID-" + UUID.randomUUID().toString();
+                      prefs.edit().putString("ownerId", ownerId).apply();
+                  }
+
+                  if (!paired) {
+                      setContentView(buildPairingUi());
+                      return;
+                  }
+
+                  openControl();
+              }
+
+              private void openControl() {
                   setContentView(buildUi());
 
                   if (password.isEmpty()) {
@@ -288,6 +317,290 @@ jobs:
                   } else {
                       connectMqtt();
                   }
+              }
+
+              private View buildPairingUi() {
+                  ScrollView scroll = new ScrollView(this);
+                  scroll.setFillViewport(true);
+                  scroll.setBackgroundColor(Color.rgb(228, 233, 239));
+
+                  LinearLayout root = new LinearLayout(this);
+                  root.setOrientation(LinearLayout.VERTICAL);
+                  root.setGravity(Gravity.CENTER_HORIZONTAL);
+                  root.setPadding(dp(26), dp(42), dp(26), dp(32));
+                  scroll.addView(root, new ScrollView.LayoutParams(-1, -1));
+
+                  TextView title = text("AireSmart", 31, Color.rgb(16,35,62), true);
+                  title.setGravity(Gravity.CENTER);
+                  title.setOnLongClickListener(v -> {
+                      showConnectionDialog();
+                      return true;
+                  });
+                  root.addView(title);
+
+                  TextView sub = text(
+                      "Vincula tu equipo",
+                      16,
+                      Color.rgb(92,112,136),
+                      false
+                  );
+                  sub.setGravity(Gravity.CENTER);
+                  root.addView(sub);
+
+                  space(root, 30);
+
+                  LinearLayout card = card();
+                  card.setPadding(dp(22), dp(26), dp(22), dp(26));
+                  card.setGravity(Gravity.CENTER_HORIZONTAL);
+
+                  TextView heading = text(
+                      "Vincular mi AireSmart",
+                      23,
+                      Color.rgb(16,35,62),
+                      true
+                  );
+                  card.addView(heading);
+
+                  space(card, 10);
+
+                  TextView instructions = text(
+                      "Escribe el código de vinculación de tu AireSmart.",
+                      13,
+                      Color.rgb(113,132,155),
+                      false
+                  );
+                  instructions.setGravity(Gravity.CENTER);
+                  card.addView(instructions);
+
+                  space(card, 20);
+
+                  EditText codeEt = new EditText(this);
+                  codeEt.setHint("XXXX-XXXX");
+                  codeEt.setSingleLine(true);
+                  codeEt.setTextSize(20);
+                  codeEt.setGravity(Gravity.CENTER);
+                  codeEt.setAllCaps(true);
+                  codeEt.setPadding(dp(14), 0, dp(14), 0);
+                  codeEt.setBackground(bg(Color.WHITE, 14));
+                  card.addView(codeEt, lp(-1, 58));
+
+                  space(card, 16);
+
+                  Button pairButton = button(
+                      "VINCULAR AIRE SMART",
+                      Color.rgb(13,125,246)
+                  );
+                  card.addView(pairButton, lp(-1, 56));
+
+                  space(card, 14);
+
+                  TextView status = text(
+                      "El código es de un solo uso.",
+                      12,
+                      Color.rgb(113,132,155),
+                      false
+                  );
+                  status.setGravity(Gravity.CENTER);
+                  card.addView(status);
+
+                  pairButton.setOnClickListener(v -> {
+                      String code = codeEt.getText().toString().trim();
+
+                      if (code.isEmpty()) {
+                          status.setText("Escribe el código de vinculación");
+                          status.setTextColor(Color.rgb(201,54,64));
+                          return;
+                      }
+
+                      pairButton.setEnabled(false);
+                      pairButton.setAlpha(0.65f);
+                      status.setText("VINCULANDO…");
+                      status.setTextColor(Color.rgb(13,125,246));
+
+                      pairDevice(code, pairButton, status);
+                  });
+
+                  root.addView(card);
+
+                  space(root, 20);
+
+                  TextView help = text(
+                      "Mantén presionado “AireSmart” para configuración de administrador.",
+                      10,
+                      Color.rgb(132,148,167),
+                      false
+                  );
+                  help.setGravity(Gravity.CENTER);
+                  root.addView(help);
+
+                  return scroll;
+              }
+
+              private void pairDevice(
+                  String code,
+                  Button pairButton,
+                  TextView status
+              ) {
+                  io.execute(() -> {
+                      HttpsURLConnection conn = null;
+
+                      try {
+                          URL url = new URL(PAIR_API);
+                          conn = (HttpsURLConnection) url.openConnection();
+                          conn.setRequestMethod("POST");
+                          conn.setConnectTimeout(12000);
+                          conn.setReadTimeout(12000);
+                          conn.setDoOutput(true);
+                          conn.setRequestProperty(
+                              "Content-Type",
+                              "application/json; charset=UTF-8"
+                          );
+                          conn.setRequestProperty(
+                              "Accept",
+                              "application/json"
+                          );
+
+                          JSONObject requestBody = new JSONObject();
+                          requestBody.put("code", code);
+                          requestBody.put("owner_id", ownerId);
+
+                          byte[] payload = requestBody
+                              .toString()
+                              .getBytes(StandardCharsets.UTF_8);
+
+                          conn.setFixedLengthStreamingMode(payload.length);
+
+                          try (OutputStream os = conn.getOutputStream()) {
+                              os.write(payload);
+                              os.flush();
+                          }
+
+                          int responseCode = conn.getResponseCode();
+                          InputStream stream =
+                              responseCode >= 200 && responseCode < 300
+                                  ? conn.getInputStream()
+                                  : conn.getErrorStream();
+
+                          StringBuilder raw = new StringBuilder();
+
+                          if (stream != null) {
+                              try (
+                                  BufferedReader reader = new BufferedReader(
+                                      new InputStreamReader(
+                                          stream,
+                                          StandardCharsets.UTF_8
+                                      )
+                                  )
+                              ) {
+                                  String line;
+                                  while ((line = reader.readLine()) != null) {
+                                      raw.append(line);
+                                  }
+                              }
+                          }
+
+                          JSONObject response = raw.length() > 0
+                              ? new JSONObject(raw.toString())
+                              : new JSONObject();
+
+                          boolean ok =
+                              responseCode >= 200 &&
+                              responseCode < 300 &&
+                              response.optBoolean("ok", false);
+
+                          if (!ok) {
+                              String error = response.optString(
+                                  "error",
+                                  "pairing_failed"
+                              );
+
+                              runOnUiThread(() -> {
+                                  pairButton.setEnabled(true);
+                                  pairButton.setAlpha(1f);
+                                  status.setText(pairingErrorText(error));
+                                  status.setTextColor(Color.rgb(201,54,64));
+                              });
+                              return;
+                          }
+
+                          String newDeviceId =
+                              response.optString("device_id", "").trim();
+                          String newTopicBase =
+                              response.optString("topic_base", "").trim();
+
+                          if (
+                              newDeviceId.isEmpty() ||
+                              newTopicBase.isEmpty()
+                          ) {
+                              runOnUiThread(() -> {
+                                  pairButton.setEnabled(true);
+                                  pairButton.setAlpha(1f);
+                                  status.setText(
+                                      "Respuesta de vinculación incompleta"
+                                  );
+                                  status.setTextColor(Color.rgb(201,54,64));
+                              });
+                              return;
+                          }
+
+                          deviceId = newDeviceId;
+                          topicBase = newTopicBase;
+                          paired = true;
+
+                          prefs.edit()
+                              .putBoolean("paired", true)
+                              .putString("deviceId", deviceId)
+                              .putString("topicBase", topicBase)
+                              .apply();
+
+                          runOnUiThread(() -> {
+                              status.setText("AIRE SMART VINCULADO");
+                              status.setTextColor(Color.rgb(13,136,74));
+                              toast("AireSmart vinculado correctamente");
+
+                              mainHandler.postDelayed(
+                                  this::openControl,
+                                  650
+                              );
+                          });
+
+                      } catch (Exception e) {
+                          runOnUiThread(() -> {
+                              pairButton.setEnabled(true);
+                              pairButton.setAlpha(1f);
+                              status.setText(
+                                  "No se pudo conectar. Intenta de nuevo."
+                              );
+                              status.setTextColor(Color.rgb(201,54,64));
+                          });
+                      } finally {
+                          if (conn != null) {
+                              conn.disconnect();
+                          }
+                      }
+                  });
+              }
+
+              private String pairingErrorText(String error) {
+                  if ("pairing_code_not_found".equals(error)) {
+                      return "Código no válido";
+                  }
+                  if ("pairing_code_used".equals(error)) {
+                      return "Este código ya fue utilizado";
+                  }
+                  if ("pairing_code_expired".equals(error)) {
+                      return "El código ya venció";
+                  }
+                  if ("device_already_paired".equals(error)) {
+                      return "Este AireSmart ya está vinculado";
+                  }
+                  if ("device_not_configured".equals(error)) {
+                      return "El AireSmart aún no está preparado";
+                  }
+                  if ("pairing_conflict".equals(error)) {
+                      return "No se pudo completar la vinculación";
+                  }
+                  return "No se pudo vincular. Intenta de nuevo.";
               }
 
               private View buildUi() {
@@ -410,7 +723,10 @@ jobs:
                   ackCard.addView(ackState);
                   root.addView(ackCard);
 
-                  // Versión oculta en Modo Cliente.
+                  TextView version = text("AireSmart Remote v1.0.13", 10, Color.rgb(132,148,167), false);
+                  LinearLayout.LayoutParams vp = lp(-1, -2);
+                  vp.topMargin = dp(20);
+                  root.addView(version, vp);
 
                   animateEntrance(root);
                   return scroll;
@@ -435,8 +751,8 @@ jobs:
                   form.addView(topicEt);
 
                   new AlertDialog.Builder(this)
-                      .setTitle("Administrador AireSmart")
-                      .setMessage("Configuración avanzada")
+                      .setTitle("Configuración AireSmart")
+                      .setMessage("Acceso de administrador")
                       .setView(form)
                       .setNegativeButton("CANCELAR", null)
                       .setPositiveButton("CONECTAR", (d, w) -> {
@@ -497,9 +813,9 @@ jobs:
                               public void connectComplete(boolean reconnect, String serverURI) {
                                   runOnUiThread(() ->
                                       setCloud(
-                                          "● EN LÍNEA",
+                                          "● BROKER",
                                           Color.rgb(13,136,74),
-                                          reconnect ? "Conexión recuperada" : "AireSmart conectado"
+                                          reconnect ? "Reconectado" : "Conectado"
                                       )
                                   );
                                   subscribeTopics();
@@ -508,7 +824,7 @@ jobs:
                               @Override
                               public void connectionLost(Throwable cause) {
                                   runOnUiThread(() -> {
-                                      setCloud("● SIN CONEXIÓN", Color.rgb(201,54,64), "Intentando reconectar…");
+                                      setCloud("● OFFLINE", Color.rgb(201,54,64), "Conexión perdida");
                                       powerRing.setMode(PowerRingView.MODE_OFFLINE);
                                   });
                               }
@@ -536,7 +852,7 @@ jobs:
 
                       } catch (Exception e) {
                           runOnUiThread(() -> {
-                              setCloud("● SIN CONEXIÓN", Color.rgb(201,54,64), "Reintentando conexión…");
+                              setCloud("● ERROR", Color.rgb(201,54,64), safe(e.getMessage()));
                               powerRing.setMode(PowerRingView.MODE_OFFLINE);
                           });
                       }
@@ -552,9 +868,9 @@ jobs:
                       } catch (Exception e) {
                           runOnUiThread(() ->
                               setCloud(
-                                  "● SIN CONEXIÓN",
+                                  "● ERROR",
                                   Color.rgb(201,54,64),
-                                  "No se pudo sincronizar"
+                                  "Suscripción MQTT"
                               )
                           );
                       }
@@ -626,7 +942,7 @@ jobs:
                       }
 
                   } catch (Exception e) {
-                      runOnUiThread(() -> showAck("SINCRONIZANDO…", false));
+                      runOnUiThread(() -> showAck("MENSAJE MQTT NO VÁLIDO", false));
                   }
               }
 
@@ -1279,7 +1595,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.12_Client_Mode.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.13_Pairing_Pilot.apk
 
       - name: Verify APK signature
         env:
@@ -1289,7 +1605,7 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.12_Client_Mode.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.13_Pairing_Pilot.apk
 
       - name: Remove decrypted key
         if: always()
@@ -1299,5 +1615,5 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.12-Client-Mode
-          path: AireSmart_Remote_v1.0.12_Client_Mode.apk
+          name: AireSmart-Remote-v1.0.13-Pairing-Pilot
+          path: AireSmart_Remote_v1.0.13_Pairing_Pilot.apk
