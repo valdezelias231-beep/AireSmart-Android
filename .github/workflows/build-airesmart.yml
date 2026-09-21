@@ -102,8 +102,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 22
-                  versionName "1.0.21"
+                  versionCode 23
+                  versionName "1.0.22"
               }
 
               signingConfigs {
@@ -199,6 +199,7 @@ jobs:
           import android.os.Bundle;
           import android.os.Handler;
           import android.os.Looper;
+          import android.provider.Settings;
           import android.security.keystore.KeyGenParameterSpec;
           import android.security.keystore.KeyProperties;
           import android.text.InputType;
@@ -230,6 +231,7 @@ jobs:
           import java.util.concurrent.Executors;
           import java.net.URL;
           import java.security.KeyStore;
+          import java.security.MessageDigest;
           import javax.crypto.Cipher;
           import javax.crypto.KeyGenerator;
           import javax.crypto.SecretKey;
@@ -253,6 +255,9 @@ jobs:
 
               private static final String PAIR_API =
                   "https://airesmart-pairing-api.valdezelias231.workers.dev/pair";
+
+              private static final String REPAIR_API =
+                  "https://airesmart-pairing-api.valdezelias231.workers.dev/pair/repair";
 
               private static final String KEYSTORE_PROVIDER = "AndroidKeyStore";
               private static final String MQTT_KEY_ALIAS =
@@ -333,8 +338,11 @@ jobs:
 
                   ownerId = prefs.getString("ownerId", "");
                   if (ownerId.isEmpty()) {
-                      ownerId = "ANDROID-" + UUID.randomUUID().toString();
-                      prefs.edit().putString("ownerId", ownerId).apply();
+                      ownerId = buildDeviceBoundOwnerId();
+                      prefs.edit()
+                          .putString("ownerId", ownerId)
+                          .putInt("ownerIdVersion", 2)
+                          .apply();
                   }
 
                   if (!paired) {
@@ -602,6 +610,41 @@ jobs:
                   root.addView(help);
 
                   return scroll;
+              }
+
+              private String buildDeviceBoundOwnerId() {
+                  try {
+                      String androidId = Settings.Secure.getString(
+                          getContentResolver(),
+                          Settings.Secure.ANDROID_ID
+                      );
+
+                      if (androidId == null || androidId.trim().isEmpty()) {
+                          androidId = UUID.randomUUID().toString();
+                      }
+
+                      MessageDigest digest =
+                          MessageDigest.getInstance("SHA-256");
+
+                      byte[] bytes = digest.digest(
+                          (androidId + "|" + getPackageName())
+                              .getBytes(StandardCharsets.UTF_8)
+                      );
+
+                      StringBuilder hex = new StringBuilder();
+
+                      for (byte b : bytes) {
+                          hex.append(
+                              String.format("%02x", b & 0xff)
+                          );
+                      }
+
+                      return "ANDROID2-" + hex.substring(0, 32);
+
+                  } catch (Exception error) {
+                      return "ANDROID2-" +
+                          UUID.randomUUID().toString();
+                  }
               }
 
               private void pairDevice(
@@ -1009,7 +1052,7 @@ jobs:
                   ackCard.addView(ackState);
                   root.addView(ackCard);
 
-                  TextView version = text("AireSmart Remote v1.0.21", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.22", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -1036,16 +1079,30 @@ jobs:
                   form.addView(passEt);
                   form.addView(topicEt);
 
-                  new AlertDialog.Builder(this)
+                  AlertDialog configDialog =
+                      new AlertDialog.Builder(this)
                       .setTitle("Configuración AireSmart")
                       .setMessage("Acceso de administrador")
                       .setView(form)
                       .setNegativeButton("CANCELAR", null)
                       .setNeutralButton(
                           "ACTUALIZAR ACCESO",
-                          (d, w) -> showPrivateAccessMigrationDialog()
+                          null
                       )
-                      .setPositiveButton("CONECTAR", (d, w) -> {
+                      .setPositiveButton("CONECTAR", null)
+                      .create();
+
+                  configDialog.setOnShowListener(ignored -> {
+                      configDialog.getButton(
+                          AlertDialog.BUTTON_NEUTRAL
+                      ).setOnClickListener(v -> {
+                          configDialog.dismiss();
+                          showAccessOptionsDialog();
+                      });
+
+                      configDialog.getButton(
+                          AlertDialog.BUTTON_POSITIVE
+                      ).setOnClickListener(v -> {
                           host = hostEt.getText().toString().trim();
                           try {
                               port = Integer.parseInt(portEt.getText().toString().trim());
@@ -1079,7 +1136,31 @@ jobs:
                               .apply();
 
                           connectMqtt();
-                      }).show();
+                          configDialog.dismiss();
+                      });
+                  });
+
+                  configDialog.show();
+              }
+
+              private void showAccessOptionsDialog() {
+                  new AlertDialog.Builder(this)
+                      .setTitle("Acceso del teléfono")
+                      .setMessage(
+                          "ACTUALIZAR ACCESO conserva la identidad actual.\n\n" +
+                          "REPARAR IDENTIDAD se usa cuando dos teléfonos " +
+                          "quedaron con la misma identidad."
+                      )
+                      .setNegativeButton("CANCELAR", null)
+                      .setNeutralButton(
+                          "REPARAR IDENTIDAD",
+                          (d, w) -> showIdentityRepairDialog()
+                      )
+                      .setPositiveButton(
+                          "ACTUALIZAR ACCESO",
+                          (d, w) -> showPrivateAccessMigrationDialog()
+                      )
+                      .show();
               }
 
               private void showPrivateAccessMigrationDialog() {
@@ -1159,6 +1240,329 @@ jobs:
                   });
 
                   dialog.show();
+              }
+
+              private void showIdentityRepairDialog() {
+                  LinearLayout form = new LinearLayout(this);
+                  form.setOrientation(LinearLayout.VERTICAL);
+                  form.setPadding(dp(18), 0, dp(18), 0);
+
+                  TextView info = text(
+                      "Usa solamente un código de reparación generado para " +
+                      "este teléfono. Se creará una identidad nueva y única " +
+                      "sin borrar la configuración del AireSmart.",
+                      12,
+                      Color.rgb(92,112,136),
+                      false
+                  );
+                  info.setGravity(Gravity.CENTER);
+                  form.addView(info);
+
+                  space(form, 14);
+
+                  EditText codeEt = new EditText(this);
+                  codeEt.setHint("XXXX-XXXX");
+                  codeEt.setSingleLine(true);
+                  codeEt.setTextSize(20);
+                  codeEt.setGravity(Gravity.CENTER);
+                  codeEt.setAllCaps(true);
+                  codeEt.setTextColor(Color.rgb(17,17,17));
+                  codeEt.setHintTextColor(Color.rgb(156,163,175));
+                  codeEt.setPadding(dp(14), 0, dp(14), 0);
+                  codeEt.setBackground(bg(Color.WHITE, 14));
+                  form.addView(codeEt, lp(-1, 58));
+
+                  space(form, 14);
+
+                  Button repairButton = button(
+                      "REPARAR IDENTIDAD",
+                      Color.rgb(235,130,38)
+                  );
+                  form.addView(repairButton, lp(-1, 56));
+
+                  space(form, 12);
+
+                  TextView status = text(
+                      "El código es válido una sola vez.",
+                      11,
+                      Color.rgb(113,132,155),
+                      false
+                  );
+                  status.setGravity(Gravity.CENTER);
+                  form.addView(status);
+
+                  AlertDialog dialog = new AlertDialog.Builder(this)
+                      .setTitle("Reparación segura")
+                      .setView(form)
+                      .setNegativeButton("CERRAR", null)
+                      .create();
+
+                  repairButton.setOnClickListener(v -> {
+                      String code = codeEt.getText().toString().trim();
+
+                      if (code.isEmpty()) {
+                          status.setText("Escribe el código de reparación");
+                          status.setTextColor(Color.rgb(201,54,64));
+                          return;
+                      }
+
+                      repairButton.setEnabled(false);
+                      repairButton.setAlpha(0.65f);
+                      status.setText("REPARANDO IDENTIDAD…");
+                      status.setTextColor(Color.rgb(235,130,38));
+
+                      repairIdentity(
+                          code,
+                          repairButton,
+                          status
+                      );
+                  });
+
+                  dialog.show();
+              }
+
+              private void repairIdentity(
+                  String code,
+                  Button repairButton,
+                  TextView status
+              ) {
+                  io.execute(() -> {
+                      HttpsURLConnection conn = null;
+
+                      try {
+                          String newOwnerId = buildDeviceBoundOwnerId();
+
+                          URL url = new URL(REPAIR_API);
+                          conn = (HttpsURLConnection) url.openConnection();
+                          conn.setRequestMethod("POST");
+                          conn.setConnectTimeout(12000);
+                          conn.setReadTimeout(12000);
+                          conn.setDoOutput(true);
+                          conn.setRequestProperty(
+                              "Content-Type",
+                              "application/json; charset=UTF-8"
+                          );
+                          conn.setRequestProperty(
+                              "Accept",
+                              "application/json"
+                          );
+
+                          JSONObject requestBody = new JSONObject();
+                          requestBody.put("code", code);
+                          requestBody.put("owner_id", newOwnerId);
+
+                          byte[] payload = requestBody
+                              .toString()
+                              .getBytes(StandardCharsets.UTF_8);
+
+                          conn.setFixedLengthStreamingMode(payload.length);
+
+                          try (OutputStream os = conn.getOutputStream()) {
+                              os.write(payload);
+                              os.flush();
+                          }
+
+                          int responseCode = conn.getResponseCode();
+
+                          InputStream stream =
+                              responseCode >= 200 && responseCode < 300
+                                  ? conn.getInputStream()
+                                  : conn.getErrorStream();
+
+                          StringBuilder raw = new StringBuilder();
+
+                          if (stream != null) {
+                              try (
+                                  BufferedReader reader = new BufferedReader(
+                                      new InputStreamReader(
+                                          stream,
+                                          StandardCharsets.UTF_8
+                                      )
+                                  )
+                              ) {
+                                  String line;
+                                  while ((line = reader.readLine()) != null) {
+                                      raw.append(line);
+                                  }
+                              }
+                          }
+
+                          JSONObject response = raw.length() > 0
+                              ? new JSONObject(raw.toString())
+                              : new JSONObject();
+
+                          boolean ok =
+                              responseCode >= 200 &&
+                              responseCode < 300 &&
+                              response.optBoolean("ok", false);
+
+                          if (!ok) {
+                              String error = response.optString(
+                                  "error",
+                                  "identity_repair_failed"
+                              );
+
+                              runOnUiThread(() -> {
+                                  repairButton.setEnabled(true);
+                                  repairButton.setAlpha(1f);
+                                  status.setText(
+                                      identityRepairErrorText(error)
+                                  );
+                                  status.setTextColor(
+                                      Color.rgb(201,54,64)
+                                  );
+                              });
+                              return;
+                          }
+
+                          JSONObject mqttInfo =
+                              response.optJSONObject("mqtt");
+
+                          String newDeviceId =
+                              response.optString(
+                                  "device_id",
+                                  ""
+                              ).trim();
+
+                          String newHost =
+                              mqttInfo == null
+                                  ? ""
+                                  : mqttInfo.optString(
+                                      "host",
+                                      ""
+                                  ).trim();
+
+                          int newPort =
+                              mqttInfo == null
+                                  ? 0
+                                  : mqttInfo.optInt(
+                                      "port",
+                                      0
+                                  );
+
+                          String newUsername =
+                              mqttInfo == null
+                                  ? ""
+                                  : mqttInfo.optString(
+                                      "username",
+                                      ""
+                                  ).trim();
+
+                          String newPassword =
+                              mqttInfo == null
+                                  ? ""
+                                  : mqttInfo.optString(
+                                      "password",
+                                      ""
+                                  );
+
+                          String newTopicBase =
+                              mqttInfo == null
+                                  ? ""
+                                  : mqttInfo.optString(
+                                      "topic_base",
+                                      ""
+                                  ).trim();
+
+                          if (
+                              newDeviceId.isEmpty() ||
+                              newHost.isEmpty() ||
+                              newPort <= 0 ||
+                              newUsername.isEmpty() ||
+                              newPassword.isEmpty() ||
+                              newTopicBase.isEmpty()
+                          ) {
+                              throw new IllegalStateException(
+                                  "repair_response_incomplete"
+                              );
+                          }
+
+                          saveMqttPasswordSecure(newPassword);
+
+                          ownerId = newOwnerId;
+                          deviceId = newDeviceId;
+                          host = newHost;
+                          port = newPort;
+                          username = newUsername;
+                          password = newPassword;
+                          topicBase = newTopicBase;
+                          paired = true;
+
+                          prefs.edit()
+                              .putString("ownerId", ownerId)
+                              .putInt("ownerIdVersion", 2)
+                              .putBoolean("paired", true)
+                              .putString("deviceId", deviceId)
+                              .putString("host", host)
+                              .putInt("port", port)
+                              .putString("username", username)
+                              .putString("topicBase", topicBase)
+                              .remove("password")
+                              .apply();
+
+                          runOnUiThread(() -> {
+                              repairButton.setEnabled(true);
+                              repairButton.setAlpha(1f);
+                              status.setText(
+                                  "IDENTIDAD REPARADA · RECONECTANDO"
+                              );
+                              status.setTextColor(
+                                  Color.rgb(13,136,74)
+                              );
+
+                              toast("Identidad del teléfono reparada");
+
+                              disconnectMqtt();
+                              mainHandler.postDelayed(
+                                  this::connectMqtt,
+                                  500
+                              );
+                          });
+
+                      } catch (Exception error) {
+                          runOnUiThread(() -> {
+                              repairButton.setEnabled(true);
+                              repairButton.setAlpha(1f);
+                              status.setText(
+                                  "No se pudo reparar la identidad"
+                              );
+                              status.setTextColor(
+                                  Color.rgb(201,54,64)
+                              );
+                          });
+                      } finally {
+                          if (conn != null) {
+                              conn.disconnect();
+                          }
+                      }
+                  });
+              }
+
+              private String identityRepairErrorText(String error) {
+                  if ("repair_code_not_found".equals(error)) {
+                      return "Código de reparación no válido";
+                  }
+                  if ("repair_code_used".equals(error)) {
+                      return "Este código ya fue utilizado";
+                  }
+                  if ("repair_code_expired".equals(error)) {
+                      return "El código de reparación venció";
+                  }
+                  if ("identity_already_in_use".equals(error)) {
+                      return "La nueva identidad ya está en uso";
+                  }
+                  if ("binding_not_found".equals(error)) {
+                      return "No se encontró el teléfono a reparar";
+                  }
+                  if ("binding_revoked".equals(error)) {
+                      return "Ese teléfono ya está revocado";
+                  }
+                  if (error != null && error.startsWith("emqx_")) {
+                      return "No se pudo crear la credencial privada [" +
+                          error + "]";
+                  }
+
+                  return "No se pudo reparar [" + error + "]";
               }
 
               private void connectMqtt() {
@@ -2252,7 +2656,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.21_Private_Phone_MQTT_Migration.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.22_Identity_Repair.apk
 
       - name: Verify APK signature
         env:
@@ -2262,7 +2666,7 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.21_Private_Phone_MQTT_Migration.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.22_Identity_Repair.apk
 
       - name: Remove decrypted key
         if: always()
@@ -2272,5 +2676,5 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.21-Private-Phone-MQTT-Migration
-          path: AireSmart_Remote_v1.0.21_Private_Phone_MQTT_Migration.apk
+          name: AireSmart-Remote-v1.0.22-Identity-Repair
+          path: AireSmart_Remote_v1.0.22_Identity_Repair.apk
