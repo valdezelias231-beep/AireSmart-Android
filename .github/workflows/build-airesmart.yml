@@ -105,8 +105,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 24
-                  versionName "1.0.23"
+                  versionCode 25
+                  versionName "1.0.24"
               }
 
               signingConfigs {
@@ -259,7 +259,8 @@ jobs:
               private SharedPreferences prefs;
 
               private TextView cloudStatus, detailState, systemState, heroSub, ackState;
-              private Button coolButton, fanButton, lowButton, highButton;
+              private FlushCoolButton coolButton;
+              private Button fanButton, lowButton, highButton;
               private PowerRingView powerRing;
 
               private LinearLayout updateCard;
@@ -1026,7 +1027,7 @@ jobs:
                   LinearLayout modes = new LinearLayout(this);
                   modes.setOrientation(LinearLayout.HORIZONTAL);
 
-                  coolButton = button("ENFRIAR", Color.rgb(13,125,246));
+                  coolButton = new FlushCoolButton(this);
                   fanButton = button("SOLO AIRE", Color.rgb(32,183,201));
 
                   coolButton.setOnClickListener(v -> sendMode("cool"));
@@ -1123,7 +1124,7 @@ jobs:
                   up.topMargin = dp(14);
                   root.addView(updateCard, up);
 
-                  TextView version = text("AireSmart Remote v1.0.23", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.24", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -2650,16 +2651,15 @@ jobs:
                   if (fanMode) {
                       fanButton.setBackground(bg(Color.rgb(32,183,201), 14));
                       fanButton.setTextColor(Color.WHITE);
-                      coolButton.setBackground(bg(Color.rgb(220,226,233), 14));
-                      coolButton.setTextColor(Color.rgb(92,112,136));
+                      coolButton.setFlushActive(false);
                   } else if (systemActive) {
-                      coolButton.setBackground(bg(Color.rgb(13,125,246), 14));
-                      coolButton.setTextColor(Color.WHITE);
+                      // Solo ENFRIAR conserva el efecto Flush aprobado.
+                      // La lógica MQTT/ACK no cambia; esto es únicamente visual.
+                      coolButton.setFlushActive(true);
                       fanButton.setBackground(bg(Color.rgb(220,226,233), 14));
                       fanButton.setTextColor(Color.rgb(92,112,136));
                   } else {
-                      coolButton.setBackground(bg(Color.rgb(220,226,233), 14));
-                      coolButton.setTextColor(Color.rgb(92,112,136));
+                      coolButton.setFlushActive(false);
                       fanButton.setBackground(bg(Color.rgb(220,226,233), 14));
                       fanButton.setTextColor(Color.rgb(92,112,136));
                   }
@@ -2898,6 +2898,355 @@ jobs:
                           }
                       } catch (Exception ignored) {}
                   });
+              }
+
+
+              /**
+               * Botón nativo que replica el Flush aprobado para ENFRIAR.
+               * - Inactivo: gris limpio, sin ninguna línea oscura.
+               * - Activo: base azul, mitad superior oscura y burbujas ascendentes.
+               * - No altera MQTT, ACK, estados ni tiempos; solo dibuja la apariencia.
+               */
+              public static class FlushCoolButton extends Button {
+                  private final Paint basePaint =
+                      new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint darkPaint =
+                      new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint bubblePaint =
+                      new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint labelPaint =
+                      new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final RectF bounds = new RectF();
+
+                  private boolean flushActive = false;
+                  private float reveal = 0f;
+                  private float bubblePhase = 0f;
+
+                  private ValueAnimator revealAnimator;
+                  private ValueAnimator bubbleAnimator;
+
+                  private final int idleColor =
+                      Color.rgb(220, 226, 233);
+                  private final int idleText =
+                      Color.rgb(92, 112, 136);
+                  private final int flushBlue =
+                      Color.rgb(21, 107, 193);
+                  private final int flushDark =
+                      Color.rgb(20, 18, 24);
+                  private final int bubbleColor =
+                      Color.rgb(198, 217, 236);
+
+                  public FlushCoolButton(Context context) {
+                      super(context);
+
+                      setAllCaps(false);
+                      setText("");
+                      setBackgroundColor(Color.TRANSPARENT);
+                      setPadding(0, 0, 0, 0);
+
+                      labelPaint.setTextAlign(Paint.Align.CENTER);
+                      labelPaint.setTypeface(Typeface.DEFAULT_BOLD);
+                      labelPaint.setTextSize(
+                          14f *
+                          getResources()
+                              .getDisplayMetrics()
+                              .scaledDensity
+                      );
+
+                      bubblePaint.setStyle(Paint.Style.STROKE);
+                      bubblePaint.setStrokeWidth(dpLocal(1.4f));
+                  }
+
+                  public void setFlushActive(boolean active) {
+                      if (
+                          flushActive == active &&
+                          (
+                              (active && reveal >= 0.999f) ||
+                              (!active && reveal <= 0.001f)
+                          )
+                      ) {
+                          return;
+                      }
+
+                      flushActive = active;
+
+                      if (revealAnimator != null) {
+                          revealAnimator.cancel();
+                      }
+
+                      float target = active ? 1f : 0f;
+
+                      revealAnimator = ValueAnimator.ofFloat(
+                          reveal,
+                          target
+                      );
+                      revealAnimator.setDuration(420);
+                      revealAnimator.setInterpolator(
+                          new AccelerateDecelerateInterpolator()
+                      );
+                      revealAnimator.addUpdateListener(animator -> {
+                          reveal =
+                              (Float) animator.getAnimatedValue();
+                          invalidate();
+                      });
+                      revealAnimator.addListener(
+                          new AnimatorListenerAdapter() {
+                              @Override
+                              public void onAnimationEnd(
+                                  Animator animation
+                              ) {
+                                  if (flushActive) {
+                                      startBubbles();
+                                  } else {
+                                      stopBubbles();
+                                      bubblePhase = 0f;
+                                      invalidate();
+                                  }
+                              }
+                          }
+                      );
+                      revealAnimator.start();
+
+                      if (active) {
+                          startBubbles();
+                      }
+                  }
+
+                  private void startBubbles() {
+                      if (
+                          bubbleAnimator != null &&
+                          bubbleAnimator.isRunning()
+                      ) {
+                          return;
+                      }
+
+                      bubbleAnimator =
+                          ValueAnimator.ofFloat(0f, 1f);
+                      bubbleAnimator.setDuration(5000);
+                      bubbleAnimator.setRepeatCount(
+                          ValueAnimator.INFINITE
+                      );
+                      bubbleAnimator.setInterpolator(
+                          new LinearInterpolator()
+                      );
+                      bubbleAnimator.addUpdateListener(animator -> {
+                          bubblePhase =
+                              (Float) animator.getAnimatedValue();
+                          invalidate();
+                      });
+                      bubbleAnimator.start();
+                  }
+
+                  private void stopBubbles() {
+                      if (bubbleAnimator != null) {
+                          bubbleAnimator.cancel();
+                          bubbleAnimator = null;
+                      }
+                  }
+
+                  @Override
+                  protected void onDraw(Canvas canvas) {
+                      float w = getWidth();
+                      float h = getHeight();
+
+                      if (w <= 0 || h <= 0) {
+                          return;
+                      }
+
+                      float radius = dpLocal(14f);
+                      bounds.set(0f, 0f, w, h);
+
+                      // Al estar inactivo no existe capa oscura:
+                      // evita la línea negra que vimos en la prueba.
+                      int baseColor = blendColor(
+                          idleColor,
+                          flushBlue,
+                          reveal
+                      );
+                      basePaint.setColor(baseColor);
+                      basePaint.setStyle(Paint.Style.FILL);
+                      canvas.drawRoundRect(
+                          bounds,
+                          radius,
+                          radius,
+                          basePaint
+                      );
+
+                      if (reveal > 0.001f) {
+                          int save = canvas.save();
+                          canvas.clipRoundRect(
+                              bounds,
+                              radius,
+                              radius
+                          );
+
+                          // Mitad superior oscura: aparece únicamente
+                          // durante/tras la activación.
+                          darkPaint.setStyle(Paint.Style.FILL);
+                          darkPaint.setColor(flushDark);
+                          darkPaint.setAlpha(
+                              Math.round(255f * reveal)
+                          );
+
+                          float darkHeight =
+                              (h * 0.50f) * reveal;
+
+                          canvas.drawRect(
+                              0f,
+                              0f,
+                              w,
+                              darkHeight,
+                              darkPaint
+                          );
+
+                          drawBubbles(canvas, w, h, reveal);
+
+                          canvas.restoreToCount(save);
+                      }
+
+                      labelPaint.setColor(
+                          blendColor(
+                              idleText,
+                              Color.WHITE,
+                              reveal
+                          )
+                      );
+                      labelPaint.setAlpha(255);
+
+                      Paint.FontMetrics fm =
+                          labelPaint.getFontMetrics();
+
+                      float baseline =
+                          (h / 2f) -
+                          ((fm.ascent + fm.descent) / 2f);
+
+                      canvas.drawText(
+                          "ENFRIAR",
+                          w / 2f,
+                          baseline,
+                          labelPaint
+                      );
+                  }
+
+                  private void drawBubbles(
+                      Canvas canvas,
+                      float w,
+                      float h,
+                      float alphaFactor
+                  ) {
+                      bubblePaint.setColor(bubbleColor);
+                      bubblePaint.setAlpha(
+                          Math.round(
+                              165f * alphaFactor
+                          )
+                      );
+
+                      float travel = h * 2.15f;
+                      float shift =
+                          bubblePhase * travel;
+
+                      for (int row = 0; row < 4; row++) {
+                          float baseY =
+                              h +
+                              (row * h * 0.68f) -
+                              shift;
+
+                          while (baseY < -h * 0.45f) {
+                              baseY += travel;
+                          }
+
+                          drawBubble(
+                              canvas,
+                              w * 0.20f,
+                              baseY - h * 0.10f,
+                              dpLocal(3.5f)
+                          );
+                          drawBubble(
+                              canvas,
+                              w * 0.75f,
+                              baseY + h * 0.04f,
+                              dpLocal(3.2f)
+                          );
+                          drawBubble(
+                              canvas,
+                              w * 0.46f,
+                              baseY + h * 0.20f,
+                              dpLocal(5.2f)
+                          );
+                      }
+                  }
+
+                  private void drawBubble(
+                      Canvas canvas,
+                      float x,
+                      float y,
+                      float radius
+                  ) {
+                      canvas.drawCircle(
+                          x,
+                          y,
+                          radius,
+                          bubblePaint
+                      );
+                  }
+
+                  private int blendColor(
+                      int from,
+                      int to,
+                      float t
+                  ) {
+                      t = Math.max(0f, Math.min(1f, t));
+
+                      int a = Math.round(
+                          Color.alpha(from) +
+                          (
+                              Color.alpha(to) -
+                              Color.alpha(from)
+                          ) * t
+                      );
+                      int r = Math.round(
+                          Color.red(from) +
+                          (
+                              Color.red(to) -
+                              Color.red(from)
+                          ) * t
+                      );
+                      int g = Math.round(
+                          Color.green(from) +
+                          (
+                              Color.green(to) -
+                              Color.green(from)
+                          ) * t
+                      );
+                      int b = Math.round(
+                          Color.blue(from) +
+                          (
+                              Color.blue(to) -
+                              Color.blue(from)
+                          ) * t
+                      );
+
+                      return Color.argb(a, r, g, b);
+                  }
+
+                  private float dpLocal(float value) {
+                      return
+                          value *
+                          getResources()
+                              .getDisplayMetrics()
+                              .density;
+                  }
+
+                  @Override
+                  protected void onDetachedFromWindow() {
+                      super.onDetachedFromWindow();
+
+                      if (revealAnimator != null) {
+                          revealAnimator.cancel();
+                      }
+
+                      stopBubbles();
+                  }
               }
 
               public static class PowerRingView extends View {
@@ -3224,7 +3573,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.23_Self_Update.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.24_Flush_Enfriar.apk
 
       - name: Verify APK signature
         env:
@@ -3234,23 +3583,23 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.23_Self_Update.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.24_Flush_Enfriar.apk
 
       - name: Generate in-app update manifest
         shell: bash
         run: |
           set -euo pipefail
 
-          APK="AireSmart_Remote_v1.0.23_Self_Update.apk"
+          APK="AireSmart_Remote_v1.0.24_Flush_Enfriar.apk"
           SHA256="$(sha256sum "$APK" | awk '{print $1}')"
 
           cat > latest.json <<EOF
           {
-            "versionCode": 24,
-            "versionName": "1.0.23",
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.23/${APK}",
+            "versionCode": 25,
+            "versionName": "1.0.24",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.24/${APK}",
             "sha256": "${SHA256}",
-            "notes": "Actualización de AireSmart desde la propia aplicación."
+            "notes": "Efecto Flush visual agregado únicamente al botón ENFRIAR."
           }
           EOF
 
@@ -3261,8 +3610,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="v1.0.23"
-          APK="AireSmart_Remote_v1.0.23_Self_Update.apk"
+          TAG="v1.0.24"
+          APK="AireSmart_Remote_v1.0.24_Flush_Enfriar.apk"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload \
@@ -3275,8 +3624,8 @@ jobs:
               "$TAG" \
               "$APK" \
               latest.json \
-              --title "AireSmart Remote v1.0.23" \
-              --notes "Primera versión con actualizaciones desde la propia aplicación."
+              --title "AireSmart Remote v1.0.24" \
+              --notes "Mismo AireSmart Remote, con efecto Flush visual únicamente en ENFRIAR."
           fi
 
       - name: Remove decrypted key
@@ -3287,7 +3636,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.23-Self-Update
+          name: AireSmart-Remote-v1.0.24-Flush-Enfriar
           path: |
-            AireSmart_Remote_v1.0.23_Self_Update.apk
+            AireSmart_Remote_v1.0.24_Flush_Enfriar.apk
             latest.json
