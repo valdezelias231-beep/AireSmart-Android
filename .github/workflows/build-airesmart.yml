@@ -102,8 +102,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 21
-                  versionName "1.0.20"
+                  versionCode 22
+                  versionName "1.0.21"
               }
 
               signingConfigs {
@@ -848,6 +848,15 @@ jobs:
                   if ("pairing_conflict".equals(error)) {
                       return "Conflicto al guardar la vinculación [pairing_conflict]";
                   }
+                  if ("binding_credentials_unavailable".equals(error)) {
+                      return "No se pudo recuperar la credencial privada [binding_credentials_unavailable]";
+                  }
+                  if ("phone_binding_revoked".equals(error)) {
+                      return "Este teléfono fue revocado y necesita autorización nueva [phone_binding_revoked]";
+                  }
+                  if (error != null && error.startsWith("emqx_")) {
+                      return "No se pudo crear la credencial privada en EMQX [" + error + "]";
+                  }
                   if ("internal_error".equals(error)) {
                       return "Error interno del servicio [internal_error]";
                   }
@@ -1000,7 +1009,7 @@ jobs:
                   ackCard.addView(ackState);
                   root.addView(ackCard);
 
-                  TextView version = text("AireSmart Remote v1.0.20", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.21", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -1032,6 +1041,10 @@ jobs:
                       .setMessage("Acceso de administrador")
                       .setView(form)
                       .setNegativeButton("CANCELAR", null)
+                      .setNeutralButton(
+                          "ACTUALIZAR ACCESO",
+                          (d, w) -> showPrivateAccessMigrationDialog()
+                      )
                       .setPositiveButton("CONECTAR", (d, w) -> {
                           host = hostEt.getText().toString().trim();
                           try {
@@ -1067,6 +1080,85 @@ jobs:
 
                           connectMqtt();
                       }).show();
+              }
+
+              private void showPrivateAccessMigrationDialog() {
+                  LinearLayout form = new LinearLayout(this);
+                  form.setOrientation(LinearLayout.VERTICAL);
+                  form.setPadding(dp(18), 0, dp(18), 0);
+
+                  TextView info = text(
+                      "Genera un código nuevo desde el Local y escríbelo aquí. " +
+                      "Este teléfono conservará su identidad, pero recibirá " +
+                      "una credencial MQTT privada.",
+                      12,
+                      Color.rgb(92,112,136),
+                      false
+                  );
+                  info.setGravity(Gravity.CENTER);
+                  form.addView(info);
+
+                  space(form, 14);
+
+                  EditText codeEt = new EditText(this);
+                  codeEt.setHint("XXXX-XXXX");
+                  codeEt.setSingleLine(true);
+                  codeEt.setTextSize(20);
+                  codeEt.setGravity(Gravity.CENTER);
+                  codeEt.setAllCaps(true);
+                  codeEt.setTextColor(Color.rgb(17,17,17));
+                  codeEt.setHintTextColor(Color.rgb(156,163,175));
+                  codeEt.setPadding(dp(14), 0, dp(14), 0);
+                  codeEt.setBackground(bg(Color.WHITE, 14));
+                  form.addView(codeEt, lp(-1, 58));
+
+                  space(form, 14);
+
+                  Button migrateButton = button(
+                      "ACTUALIZAR ACCESO",
+                      Color.rgb(13,125,246)
+                  );
+                  form.addView(migrateButton, lp(-1, 56));
+
+                  space(form, 12);
+
+                  TextView status = text(
+                      "No se borrará la configuración actual.",
+                      11,
+                      Color.rgb(113,132,155),
+                      false
+                  );
+                  status.setGravity(Gravity.CENTER);
+                  form.addView(status);
+
+                  AlertDialog dialog = new AlertDialog.Builder(this)
+                      .setTitle("Credencial privada del teléfono")
+                      .setView(form)
+                      .setNegativeButton("CERRAR", null)
+                      .create();
+
+                  migrateButton.setOnClickListener(v -> {
+                      String code = codeEt.getText().toString().trim();
+
+                      if (code.isEmpty()) {
+                          status.setText("Escribe el código de vinculación");
+                          status.setTextColor(Color.rgb(201,54,64));
+                          return;
+                      }
+
+                      migrateButton.setEnabled(false);
+                      migrateButton.setAlpha(0.65f);
+                      status.setText("ACTUALIZANDO ACCESO…");
+                      status.setTextColor(Color.rgb(13,125,246));
+
+                      pairDevice(
+                          code,
+                          migrateButton,
+                          status
+                      );
+                  });
+
+                  dialog.show();
               }
 
               private void connectMqtt() {
@@ -2160,7 +2252,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.20_Solo_Aire_Manual.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.21_Private_Phone_MQTT_Migration.apk
 
       - name: Verify APK signature
         env:
@@ -2170,7 +2262,7 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.20_Solo_Aire_Manual.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.21_Private_Phone_MQTT_Migration.apk
 
       - name: Remove decrypted key
         if: always()
@@ -2180,5 +2272,5 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.20-Solo-Aire-Manual
-          path: AireSmart_Remote_v1.0.20_Solo_Aire_Manual.apk
+          name: AireSmart-Remote-v1.0.21-Private-Phone-MQTT-Migration
+          path: AireSmart_Remote_v1.0.21_Private_Phone_MQTT_Migration.apk
