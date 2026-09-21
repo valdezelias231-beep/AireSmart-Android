@@ -102,8 +102,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 19
-                  versionName "1.0.18"
+                  versionCode 20
+                  versionName "1.0.19"
               }
 
               signingConfigs {
@@ -974,7 +974,7 @@ jobs:
                   ackCard.addView(ackState);
                   root.addView(ackCard);
 
-                  TextView version = text("AireSmart Remote v1.0.18", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.19", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -1252,13 +1252,100 @@ jobs:
 
                       } else if (topic.endsWith("/status")) {
                           boolean online = j.optBoolean("online", false);
+                          String kind =
+                              j.optString("kind", "").trim().toLowerCase();
+
+                          if ("state".equals(kind)) {
+                              motorOn = j.optBoolean("motor", false);
+                              high = j.optBoolean("high", false);
+                              boolean pumpOn =
+                                  j.optBoolean("pump", false);
+                              String state = j.optString(
+                                  "state",
+                                  motorOn ? "ENCENDIDO" : "APAGADO"
+                              );
+                              long soak =
+                                  j.optLong("soakRemaining", 0);
+
+                              confirmPendingFromState(
+                                  state,
+                                  motorOn,
+                                  high,
+                                  pumpOn
+                              );
+
+                              runOnUiThread(() -> {
+                                  setCloud(
+                                      "● EN LÍNEA",
+                                      Color.rgb(13,136,74),
+                                      "Estado sincronizado"
+                                  );
+                                  paintState(state, soak);
+                              });
+                              return;
+                          }
+
+                          if ("ack".equals(kind)) {
+                              String id = j.optString("id", "");
+
+                              if (
+                                  pendingId == null ||
+                                  !pendingId.equals(id)
+                              ) {
+                                  return;
+                              }
+
+                              mainHandler.removeCallbacks(ackTimeout);
+                              clearPendingCommand();
+
+                              boolean accepted =
+                                  j.optBoolean("accepted", false);
+                              String result =
+                                  j.optString(
+                                      "result",
+                                      accepted
+                                          ? "accepted"
+                                          : "rejected"
+                                  );
+
+                              motorOn =
+                                  j.optBoolean("motor", motorOn);
+                              high =
+                                  j.optBoolean("high", high);
+                              String state =
+                                  j.optString(
+                                      "state",
+                                      motorOn
+                                          ? "ENCENDIDO"
+                                          : "APAGADO"
+                                  );
+                              long soak =
+                                  j.optLong("soakRemaining", 0);
+
+                              runOnUiThread(() -> {
+                                  showAck(
+                                      accepted
+                                          ? "ORDEN CONFIRMADA"
+                                          : "ORDEN RECHAZADA · " +
+                                              friendlyResult(result),
+                                      accepted
+                                  );
+                                  paintState(state, soak);
+                              });
+                              return;
+                          }
+
                           runOnUiThread(() -> {
                               setCloud(
                                   online ? "● EN LÍNEA" : "● OFFLINE",
                                   online ? Color.rgb(13,136,74) : Color.rgb(201,54,64),
                                   online ? "AireSmart conectado" : "AireSmart sin conexión"
                               );
-                              if (!online) powerRing.setMode(PowerRingView.MODE_OFFLINE);
+                              if (!online) {
+                                  powerRing.setMode(
+                                      PowerRingView.MODE_OFFLINE
+                                  );
+                              }
                           });
 
                       } else if (topic.endsWith("/ack")) {
@@ -1977,7 +2064,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.18_ACK_State_Recovery.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.19_Status_Fallback.apk
 
       - name: Verify APK signature
         env:
@@ -1987,7 +2074,7 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.18_ACK_State_Recovery.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.19_Status_Fallback.apk
 
       - name: Remove decrypted key
         if: always()
@@ -1997,5 +2084,5 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.18-ACK-State-Recovery
-          path: AireSmart_Remote_v1.0.18_ACK_State_Recovery.apk
+          name: AireSmart-Remote-v1.0.19-Status-Fallback
+          path: AireSmart_Remote_v1.0.19_Status_Fallback.apk
