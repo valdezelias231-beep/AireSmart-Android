@@ -102,8 +102,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 18
-                  versionName "1.0.17"
+                  versionCode 19
+                  versionName "1.0.18"
               }
 
               signingConfigs {
@@ -276,11 +276,13 @@ jobs:
               private long soakTotalSeconds = 0;
               private long lastSoakRemaining = 0;
               private String pendingId = null;
+              private String pendingAction = null;
+              private String pendingValue = null;
 
               private final Runnable ackTimeout = () -> {
                   if (pendingId != null) {
                       showAck("SIN CONFIRMACIÓN · revisa conexión", false);
-                      pendingId = null;
+                      clearPendingCommand();
                       restoreRing();
                   }
               };
@@ -972,7 +974,7 @@ jobs:
                   ackCard.addView(ackState);
                   root.addView(ackCard);
 
-                  TextView version = text("AireSmart Remote v1.0.17", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.18", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -1135,6 +1137,88 @@ jobs:
                   });
               }
 
+              private void clearPendingCommand() {
+                  pendingId = null;
+                  pendingAction = null;
+                  pendingValue = null;
+              }
+
+              private boolean stateConfirmsPending(
+                  String state,
+                  boolean currentMotor,
+                  boolean currentHigh,
+                  boolean currentPump
+              ) {
+                  if (
+                      pendingId == null ||
+                      pendingAction == null ||
+                      pendingValue == null
+                  ) {
+                      return false;
+                  }
+
+                  String upper =
+                      state == null ? "" : state.toUpperCase();
+
+                  if ("power".equals(pendingAction)) {
+                      if ("true".equals(pendingValue)) {
+                          return
+                              upper.contains("REMOJ") ||
+                              upper.contains("ENCEND") ||
+                              currentMotor ||
+                              currentPump;
+                      }
+
+                      return
+                          upper.contains("APAG") &&
+                          !currentMotor;
+                  }
+
+                  if ("speed".equals(pendingAction)) {
+                      if (!currentMotor) {
+                          return false;
+                      }
+
+                      if ("high".equals(pendingValue)) {
+                          return currentHigh;
+                      }
+
+                      if ("low".equals(pendingValue)) {
+                          return !currentHigh;
+                      }
+                  }
+
+                  return false;
+              }
+
+              private void confirmPendingFromState(
+                  String state,
+                  boolean currentMotor,
+                  boolean currentHigh,
+                  boolean currentPump
+              ) {
+                  if (
+                      !stateConfirmsPending(
+                          state,
+                          currentMotor,
+                          currentHigh,
+                          currentPump
+                      )
+                  ) {
+                      return;
+                  }
+
+                  mainHandler.removeCallbacks(ackTimeout);
+                  clearPendingCommand();
+
+                  runOnUiThread(() ->
+                      showAck(
+                          "ORDEN CONFIRMADA",
+                          true
+                      )
+                  );
+              }
+
               private void handleMessage(String topic, String payload) {
                   try {
                       JSONObject j = new JSONObject(payload);
@@ -1142,11 +1226,20 @@ jobs:
                       if (topic.endsWith("/state")) {
                           motorOn = j.optBoolean("motor", false);
                           high = j.optBoolean("high", false);
+                          boolean pumpOn =
+                              j.optBoolean("pump", false);
                           String state = j.optString(
                               "state",
                               motorOn ? "ENCENDIDO" : "APAGADO"
                           );
                           long soak = j.optLong("soakRemaining", 0);
+
+                          confirmPendingFromState(
+                              state,
+                              motorOn,
+                              high,
+                              pumpOn
+                          );
 
                           runOnUiThread(() -> {
                               setCloud(
@@ -1170,10 +1263,18 @@ jobs:
 
                       } else if (topic.endsWith("/ack")) {
                           String id = j.optString("id", "");
-                          if (pendingId != null && !pendingId.equals(id)) return;
+
+                          // En multiusuario todos los teléfonos reciben /ack.
+                          // Solo este teléfono debe procesar el ACK de SU orden.
+                          if (
+                              pendingId == null ||
+                              !pendingId.equals(id)
+                          ) {
+                              return;
+                          }
 
                           mainHandler.removeCallbacks(ackTimeout);
-                          pendingId = null;
+                          clearPendingCommand();
 
                           boolean accepted = j.optBoolean("accepted", false);
                           String result = j.optString(
@@ -1233,6 +1334,8 @@ jobs:
                       : "{\"id\":\""+id+"\",\"action\":\""+action+"\",\"value\":\""+value+"\"}";
 
                   pendingId = id;
+                  pendingAction = action;
+                  pendingValue = value;
                   showAck("ENVIANDO ORDEN…", false);
                   powerRing.setMode(PowerRingView.MODE_PENDING);
 
@@ -1250,7 +1353,7 @@ jobs:
                       } catch (Exception e) {
                           runOnUiThread(() -> {
                               mainHandler.removeCallbacks(ackTimeout);
-                              pendingId = null;
+                              clearPendingCommand();
                               showAck(
                                   "ERROR AL ENVIAR · " + safe(e.getMessage()),
                                   false
@@ -1874,7 +1977,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.17_Family_Pairing_Diagnostics.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.18_ACK_State_Recovery.apk
 
       - name: Verify APK signature
         env:
@@ -1884,7 +1987,7 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.17_Family_Pairing_Diagnostics.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.18_ACK_State_Recovery.apk
 
       - name: Remove decrypted key
         if: always()
@@ -1894,5 +1997,5 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.17-Family-Pairing-Diagnostics
-          path: AireSmart_Remote_v1.0.17_Family_Pairing_Diagnostics.apk
+          name: AireSmart-Remote-v1.0.18-ACK-State-Recovery
+          path: AireSmart_Remote_v1.0.18_ACK_State_Recovery.apk
