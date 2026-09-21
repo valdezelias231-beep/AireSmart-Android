@@ -102,8 +102,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 20
-                  versionName "1.0.19"
+                  versionCode 21
+                  versionName "1.0.20"
               }
 
               signingConfigs {
@@ -248,7 +248,7 @@ jobs:
               private SharedPreferences prefs;
 
               private TextView cloudStatus, detailState, systemState, heroSub, ackState;
-              private Button lowButton, highButton;
+              private Button coolButton, fanButton, lowButton, highButton;
               private PowerRingView powerRing;
 
               private static final String PAIR_API =
@@ -271,6 +271,7 @@ jobs:
 
               private boolean motorOn = false;
               private boolean high = false;
+              private boolean fanMode = false;
               private boolean systemActive = false;
               private boolean wasSoaking = false;
               private long soakTotalSeconds = 0;
@@ -941,6 +942,31 @@ jobs:
                   root.addView(hero);
                   space(root, 14);
 
+                  LinearLayout modeCard = card();
+                  TextView modeTitle = text("MODO", 11, Color.rgb(92,112,136), true);
+                  modeTitle.setGravity(Gravity.START);
+                  modeCard.addView(modeTitle);
+                  space(modeCard, 10);
+
+                  LinearLayout modes = new LinearLayout(this);
+                  modes.setOrientation(LinearLayout.HORIZONTAL);
+
+                  coolButton = button("ENFRIAR", Color.rgb(13,125,246));
+                  fanButton = button("SOLO AIRE", Color.rgb(32,183,201));
+
+                  coolButton.setOnClickListener(v -> sendMode("cool"));
+                  fanButton.setOnClickListener(v -> sendMode("fan"));
+                  addPressEffect(coolButton);
+                  addPressEffect(fanButton);
+
+                  modes.addView(coolButton, new LinearLayout.LayoutParams(0, dp(54), 1));
+                  spaceHorizontal(modes, 10);
+                  modes.addView(fanButton, new LinearLayout.LayoutParams(0, dp(54), 1));
+
+                  modeCard.addView(modes);
+                  root.addView(modeCard);
+                  space(root, 14);
+
                   LinearLayout speedCard = card();
                   TextView speedTitle = text("VELOCIDAD", 11, Color.rgb(92,112,136), true);
                   speedTitle.setGravity(Gravity.START);
@@ -974,7 +1000,7 @@ jobs:
                   ackCard.addView(ackState);
                   root.addView(ackCard);
 
-                  TextView version = text("AireSmart Remote v1.0.19", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.20", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -1185,6 +1211,25 @@ jobs:
 
                       if ("low".equals(pendingValue)) {
                           return !currentHigh;
+                      }
+                  }
+
+                  if ("mode".equals(pendingAction)) {
+                      if ("fan".equals(pendingValue)) {
+                          return
+                              upper.contains("SOLO AIRE") &&
+                              currentMotor &&
+                              !currentPump;
+                      }
+
+                      if ("cool".equals(pendingValue)) {
+                          return
+                              !upper.contains("SOLO AIRE") &&
+                              (
+                                  upper.contains("REMOJ") ||
+                                  upper.contains("ENCEND") ||
+                                  currentPump
+                              );
                       }
                   }
 
@@ -1406,6 +1451,10 @@ jobs:
                   sendCommand("speed", makeHigh ? "high" : "low", false);
               }
 
+              private void sendMode(String mode) {
+                  sendCommand("mode", mode, false);
+              }
+
               private void sendCommand(String action, String value, boolean boolValue) {
                   if (mqtt == null || !mqtt.isConnected()) {
                       toast("AireSmart no está conectado");
@@ -1454,7 +1503,9 @@ jobs:
               private void paintState(String state, long soak) {
                   String upper = state == null ? "--" : state.toUpperCase();
                   boolean soakingNow = soak > 0 || upper.contains("REMOJ");
+                  boolean fanNow = upper.contains("SOLO AIRE");
 
+                  fanMode = fanNow;
                   systemActive = soakingNow || !upper.contains("APAGADO");
 
                   if (soakingNow) {
@@ -1472,6 +1523,19 @@ jobs:
                       powerRing.setSoakRemaining(safeRemaining);
 
                       wasSoaking = true;
+
+                  } else if (fanNow && motorOn) {
+                      systemState.setText(
+                          high ? "SOLO AIRE · ALTA" : "SOLO AIRE · BAJA"
+                      );
+                      systemState.setTextColor(Color.rgb(22,151,170));
+                      heroSub.setText("Ventilación sin bomba");
+                      systemActive = true;
+                      powerRing.setMode(PowerRingView.MODE_FAN);
+
+                      wasSoaking = false;
+                      soakTotalSeconds = 0;
+                      lastSoakRemaining = 0;
 
                   } else if (motorOn || upper.contains("ENCENDIDO")) {
                       systemState.setText(
@@ -1506,6 +1570,8 @@ jobs:
                       powerRing.setMode(PowerRingView.MODE_OFF);
                   } else if (!motorOn) {
                       powerRing.setMode(PowerRingView.MODE_SOAK);
+                  } else if (fanMode) {
+                      powerRing.setMode(PowerRingView.MODE_FAN);
                   } else {
                       powerRing.setMode(PowerRingView.MODE_ON);
                   }
@@ -1513,6 +1579,26 @@ jobs:
 
               private void paintSpeedButtons() {
                   boolean ready = motorOn;
+
+                  coolButton.setEnabled(true);
+                  fanButton.setEnabled(true);
+
+                  if (fanMode) {
+                      fanButton.setBackground(bg(Color.rgb(32,183,201), 14));
+                      fanButton.setTextColor(Color.WHITE);
+                      coolButton.setBackground(bg(Color.rgb(220,226,233), 14));
+                      coolButton.setTextColor(Color.rgb(92,112,136));
+                  } else if (systemActive) {
+                      coolButton.setBackground(bg(Color.rgb(13,125,246), 14));
+                      coolButton.setTextColor(Color.WHITE);
+                      fanButton.setBackground(bg(Color.rgb(220,226,233), 14));
+                      fanButton.setTextColor(Color.rgb(92,112,136));
+                  } else {
+                      coolButton.setBackground(bg(Color.rgb(220,226,233), 14));
+                      coolButton.setTextColor(Color.rgb(92,112,136));
+                      fanButton.setBackground(bg(Color.rgb(220,226,233), 14));
+                      fanButton.setTextColor(Color.rgb(92,112,136));
+                  }
 
                   lowButton.setEnabled(ready);
                   highButton.setEnabled(ready);
@@ -1757,6 +1843,7 @@ jobs:
                   public static final int MODE_ON = 3;
                   public static final int MODE_PENDING = 4;
                   public static final int MODE_OFFLINE = 5;
+                  public static final int MODE_FAN = 6;
 
                   private final Paint track = new Paint(Paint.ANTI_ALIAS_FLAG);
                   private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -1889,9 +1976,15 @@ jobs:
                           rotationAnimator.start();
                       }
 
-                      if (mode == MODE_ON || mode == MODE_SOAK) {
+                      if (
+                          mode == MODE_ON ||
+                          mode == MODE_SOAK ||
+                          mode == MODE_FAN
+                      ) {
                           pulseAnimator = ValueAnimator.ofFloat(1f, 1.028f);
-                          pulseAnimator.setDuration(mode == MODE_ON ? 1500 : 1150);
+                          pulseAnimator.setDuration(
+                              mode == MODE_SOAK ? 1150 : 1500
+                          );
                           pulseAnimator.setRepeatCount(ValueAnimator.INFINITE);
                           pulseAnimator.setRepeatMode(ValueAnimator.REVERSE);
                           pulseAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
@@ -1932,6 +2025,9 @@ jobs:
                               break;
                           case MODE_OFFLINE:
                               color = Color.rgb(132,148,167);
+                              break;
+                          case MODE_FAN:
+                              color = Color.rgb(32,183,201);
                               break;
                           default:
                               color = Color.rgb(92,112,136);
@@ -2064,7 +2160,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.19_Status_Fallback.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.20_Solo_Aire_Manual.apk
 
       - name: Verify APK signature
         env:
@@ -2074,7 +2170,7 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.19_Status_Fallback.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.20_Solo_Aire_Manual.apk
 
       - name: Remove decrypted key
         if: always()
@@ -2084,5 +2180,5 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.19-Status-Fallback
-          path: AireSmart_Remote_v1.0.19_Status_Fallback.apk
+          name: AireSmart-Remote-v1.0.20-Solo-Aire-Manual
+          path: AireSmart_Remote_v1.0.20_Solo_Aire_Manual.apk
