@@ -1512,11 +1512,26 @@ jobs:
 
                               toast("Identidad del teléfono reparada");
 
-                              disconnectMqtt();
-                              mainHandler.postDelayed(
-                                  this::connectMqtt,
-                                  500
-                              );
+                              io.execute(() -> {
+                                  try {
+                                      if (mqtt != null) {
+                                          try {
+                                              if (mqtt.isConnected()) {
+                                                  mqtt.disconnect();
+                                              }
+                                          } catch (Exception ignored) {}
+
+                                          try {
+                                              mqtt.close();
+                                          } catch (Exception ignored) {}
+                                      }
+                                  } finally {
+                                      mainHandler.postDelayed(
+                                          this::connectMqtt,
+                                          500
+                                      );
+                                  }
+                              });
                           });
 
                       } catch (Exception error) {
@@ -2656,7 +2671,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.22_Identity_Repair.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.22_Identity_Repair_FIX.apk
 
       - name: Verify APK signature
         env:
@@ -2666,7 +2681,7 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.22_Identity_Repair.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.22_Identity_Repair_FIX.apk
 
       - name: Remove decrypted key
         if: always()
@@ -2676,5 +2691,5 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.22-Identity-Repair
-          path: AireSmart_Remote_v1.0.22_Identity_Repair.apk
+          name: AireSmart-Remote-v1.0.22-Identity-Repair-FIX
+          path: AireSmart_Remote_v1.0.22_Identity_Repair_FIX.apk
