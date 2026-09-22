@@ -6,6 +6,9 @@ on:
     paths:
       - '.github/workflows/build-airesmart.yml'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -65,7 +68,6 @@ jobs:
         run: |
           mkdir -p app/src/main/java/com/airesmart/remote
           mkdir -p app/src/main/res/values
-          mkdir -p app/src/main/res/xml
           mkdir -p app/src/main/res/drawable
 
           cat > settings.gradle <<'EOF'
@@ -103,8 +105,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 31
-                  versionName "1.0.22-SmartLink1"
+                  versionCode 26
+                  versionName "1.0.25"
               }
 
               signingConfigs {
@@ -159,27 +161,18 @@ jobs:
           </resources>
           EOF
 
-          cat > app/src/main/res/xml/network_security_config.xml <<'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <network-security-config>
-              <base-config cleartextTrafficPermitted="false" />
-              <domain-config cleartextTrafficPermitted="true">
-                  <domain includeSubdomains="false">airesmart.local</domain>
-              </domain-config>
-          </network-security-config>
-          EOF
-
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
               <application
                   android:allowBackup="false"
                   android:label="AireSmart"
                   android:icon="@drawable/airesmart_app_icon"
                   android:roundIcon="@drawable/airesmart_app_icon"
-                  android:networkSecurityConfig="@xml/network_security_config"
+                  android:usesCleartextTraffic="false"
                   android:theme="@style/AppTheme">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
@@ -196,11 +189,15 @@ jobs:
 
           import android.app.Activity;
           import android.app.AlertDialog;
+          import android.app.DownloadManager;
           import android.animation.ValueAnimator;
           import android.animation.Animator;
           import android.animation.AnimatorListenerAdapter;
           import android.content.Context;
+          import android.content.Intent;
           import android.content.SharedPreferences;
+          import android.content.ClipData;
+          import android.content.ClipboardManager;
           import android.graphics.Canvas;
           import android.graphics.Color;
           import android.graphics.Paint;
@@ -208,9 +205,12 @@ jobs:
           import android.graphics.Typeface;
           import android.graphics.drawable.GradientDrawable;
           import android.os.Bundle;
+          import android.os.Build;
+          import android.os.Environment;
           import android.os.Handler;
           import android.os.Looper;
           import android.provider.Settings;
+          import android.net.Uri;
           import android.security.keystore.KeyGenParameterSpec;
           import android.security.keystore.KeyProperties;
           import android.text.InputType;
@@ -235,13 +235,17 @@ jobs:
           import org.eclipse.paho.client.mqttv3.MqttMessage;
           import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
           import org.json.JSONObject;
+          import org.json.JSONArray;
 
           import java.nio.charset.StandardCharsets;
           import java.util.UUID;
+          import java.util.ArrayList;
+          import java.util.Date;
+          import java.util.Locale;
+          import java.text.SimpleDateFormat;
           import java.util.concurrent.ExecutorService;
           import java.util.concurrent.Executors;
           import java.net.URL;
-          import java.net.HttpURLConnection;
           import java.security.KeyStore;
           import java.security.MessageDigest;
           import javax.crypto.Cipher;
@@ -256,73 +260,7 @@ jobs:
 
           public class MainActivity extends Activity {
               private final ExecutorService io = Executors.newSingleThreadExecutor();
-              private final ExecutorService localIo = Executors.newSingleThreadExecutor();
               private final Handler mainHandler = new Handler(Looper.getMainLooper());
-
-              private static final String LOCAL_BASE = "http://airesmart.local";
-              private volatile boolean smartLinkRunning = false;
-              private volatile boolean localAvailable = false;
-              private volatile long localLastSeenMs = 0L;
-              private volatile int localProbeMisses = 0;
-
-              private final Runnable smartLinkProbe = new Runnable() {
-                  @Override
-                  public void run() {
-                      if (!smartLinkRunning) return;
-
-                      localIo.execute(() -> {
-                          LocalStatus status = fetchLocalStatus(450, 700);
-
-                          if (status != null) {
-                              localAvailable = true;
-                              localLastSeenMs = System.currentTimeMillis();
-                              localProbeMisses = 0;
-
-                              motorOn = status.motor;
-                              high = status.high;
-
-                              runOnUiThread(() -> {
-                                  if (pendingId == null) {
-                                      setCloud(
-                                          "● LOCAL",
-                                          Color.rgb(13,136,74),
-                                          "SmartLink · conexión directa"
-                                      );
-                                      paintState(
-                                          status.state,
-                                          status.remaining
-                                      );
-                                  }
-                              });
-                          } else {
-                              localProbeMisses++;
-
-                              if (localProbeMisses >= 2) {
-                                  boolean wasLocal = localAvailable;
-                                  localAvailable = false;
-
-                                  if (wasLocal) {
-                                      runOnUiThread(() -> {
-                                          if (
-                                              pendingId == null &&
-                                              mqtt != null &&
-                                              mqtt.isConnected()
-                                          ) {
-                                              setCloud(
-                                                  "● BROKER",
-                                                  Color.rgb(13,136,74),
-                                                  "SmartLink · remoto"
-                                              );
-                                          }
-                                      });
-                                  }
-                              }
-                          }
-                      });
-
-                      mainHandler.postDelayed(this, 8000);
-                  }
-              };
 
               private MqttClient mqtt;
               private SharedPreferences prefs;
@@ -330,6 +268,18 @@ jobs:
               private TextView cloudStatus, detailState, systemState, heroSub, ackState;
               private Button coolButton, fanButton, lowButton, highButton;
               private PowerRingView powerRing;
+
+              private LinearLayout updateCard;
+              private TextView updateTitle;
+              private TextView updateDetail;
+              private Button updateButton;
+
+              private String availableUpdateVersion = "";
+              private String availableUpdateApkUrl = "";
+              private String availableUpdateSha256 = "";
+
+              private static final String UPDATE_MANIFEST_URL =
+                  "https://github.com/valdezelias231-beep/AireSmart-Android/releases/latest/download/latest.json";
 
               private static final String PAIR_API =
                   "https://airesmart-pairing-api.valdezelias231.workers.dev/pair";
@@ -362,9 +312,32 @@ jobs:
               private String pendingId = null;
               private String pendingAction = null;
               private String pendingValue = null;
+              private long pendingSentAt = 0L;
+
+              private static final int BLACK_BOX_MAX_EVENTS = 200;
+              private static final String PREF_BLACK_BOX_LOG = "blackBoxLogV1";
+              private final Object blackBoxLock = new Object();
+              private final ArrayList<BlackBoxEvent> blackBoxEvents = new ArrayList<>();
+              private AlertDialog blackBoxDialog;
+              private LinearLayout blackBoxTimeline;
+              private TextView blackBoxAckCount;
+              private TextView blackBoxErrorCount;
+              private TextView blackBoxAvgLatency;
+              private TextView blackBoxEventCount;
+              private String blackBoxFilter = "all";
+              private String lastBlackBoxStateSignature = "";
 
               private final Runnable ackTimeout = () -> {
                   if (pendingId != null) {
+                      long latency = pendingLatencyMs();
+                      String command = pendingCommandLabel();
+                      addBlackBoxEvent(
+                          "error",
+                          "ACK",
+                          "ACK no recibido",
+                          command + " · tiempo de espera agotado",
+                          latency > 0 ? latency : 8000L
+                      );
                       showAck("SIN CONFIRMACIÓN · revisa conexión", false);
                       clearPendingCommand();
                       restoreRing();
@@ -387,6 +360,14 @@ jobs:
                   super.onCreate(savedInstanceState);
 
                   prefs = getSharedPreferences("airesmart", MODE_PRIVATE);
+                  loadBlackBoxEvents();
+                  addBlackBoxEvent(
+                      "info",
+                      "APP",
+                      "Aplicación iniciada",
+                      "AireSmart Remote v1.0.25",
+                      -1L
+                  );
                   host = prefs.getString("host", host);
                   port = prefs.getInt("port", port);
                   username = prefs.getString("username", username);
@@ -563,13 +544,14 @@ jobs:
 
               private void openControl() {
                   setContentView(buildUi());
-                  startSmartLink();
 
                   if (password.isEmpty()) {
                       showConnectionDialog();
                   } else {
                       connectMqtt();
                   }
+
+                  checkForUpdates();
               }
 
               private View buildPairingUi() {
@@ -1131,13 +1113,591 @@ jobs:
                   ackCard.addView(ackState);
                   root.addView(ackCard);
 
-                  TextView version = text("AireSmart Remote v1.0.22 · SmartLink P1", 10, Color.rgb(132,148,167), false);
+                  space(root, 12);
+
+                  LinearLayout blackBoxEntry = card();
+                  blackBoxEntry.setOrientation(LinearLayout.HORIZONTAL);
+                  blackBoxEntry.setGravity(Gravity.CENTER_VERTICAL);
+                  blackBoxEntry.setPadding(dp(16), dp(14), dp(16), dp(14));
+                  blackBoxEntry.setOnClickListener(v -> showBlackBox());
+                  addPressEffect(blackBoxEntry);
+
+                  SignalDotView blackBoxDot = new SignalDotView(this, "info");
+                  blackBoxEntry.addView(
+                      blackBoxDot,
+                      new LinearLayout.LayoutParams(dp(24), dp(24))
+                  );
+                  spaceHorizontal(blackBoxEntry, 12);
+
+                  LinearLayout blackBoxLabels = new LinearLayout(this);
+                  blackBoxLabels.setOrientation(LinearLayout.VERTICAL);
+                  TextView blackBoxTitle = text(
+                      "CAJA NEGRA",
+                      13,
+                      Color.rgb(24,35,47),
+                      true
+                  );
+                  blackBoxTitle.setGravity(Gravity.START);
+                  TextView blackBoxSub = text(
+                      "Diagnóstico · MQTT · ACK · errores",
+                      10,
+                      Color.rgb(113,132,155),
+                      false
+                  );
+                  blackBoxSub.setGravity(Gravity.START);
+                  blackBoxLabels.addView(blackBoxTitle);
+                  blackBoxLabels.addView(blackBoxSub);
+                  blackBoxEntry.addView(
+                      blackBoxLabels,
+                      new LinearLayout.LayoutParams(0, -2, 1)
+                  );
+
+                  TextView blackBoxArrow = text(
+                      "›",
+                      25,
+                      Color.rgb(92,112,136),
+                      false
+                  );
+                  blackBoxEntry.addView(blackBoxArrow);
+                  root.addView(blackBoxEntry);
+
+                  updateCard = card();
+                  updateCard.setVisibility(View.GONE);
+                  updateCard.setPadding(
+                      dp(18),
+                      dp(15),
+                      dp(18),
+                      dp(15)
+                  );
+
+                  updateTitle = text(
+                      "ACTUALIZACIÓN DISPONIBLE",
+                      12,
+                      Color.rgb(24,95,158),
+                      true
+                  );
+                  updateTitle.setGravity(Gravity.START);
+                  updateCard.addView(updateTitle);
+
+                  space(updateCard, 5);
+
+                  updateDetail = text(
+                      "",
+                      11,
+                      Color.rgb(99,119,143),
+                      false
+                  );
+                  updateDetail.setGravity(Gravity.START);
+                  updateCard.addView(updateDetail);
+
+                  space(updateCard, 10);
+
+                  updateButton = button(
+                      "ACTUALIZAR",
+                      Color.rgb(13,125,246)
+                  );
+                  updateButton.setOnClickListener(
+                      v -> downloadAndInstallUpdate()
+                  );
+                  addPressEffect(updateButton);
+                  updateCard.addView(
+                      updateButton,
+                      lp(-1, 52)
+                  );
+
+                  LinearLayout.LayoutParams up = lp(-1, -2);
+                  up.topMargin = dp(14);
+                  root.addView(updateCard, up);
+
+                  TextView version = text("AireSmart Remote v1.0.25 · Caja Negra", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
 
                   animateEntrance(root);
                   return scroll;
+              }
+
+              private void checkForUpdates() {
+                  io.execute(() -> {
+                      try {
+                          String raw = fetchHttpsText(
+                              UPDATE_MANIFEST_URL
+                          );
+
+                          if (raw == null || raw.trim().isEmpty()) {
+                              return;
+                          }
+
+                          JSONObject latest = new JSONObject(raw);
+
+                          int latestCode =
+                              latest.optInt("versionCode", 0);
+
+                          String latestName =
+                              latest.optString(
+                                  "versionName",
+                                  ""
+                              ).trim();
+
+                          String apkUrl =
+                              latest.optString(
+                                  "apkUrl",
+                                  ""
+                              ).trim();
+
+                          String sha256 =
+                              latest.optString(
+                                  "sha256",
+                                  ""
+                              ).trim().toLowerCase();
+
+                          String notes =
+                              latest.optString(
+                                  "notes",
+                                  ""
+                              ).trim();
+
+                          if (
+                              latestCode <= 25 ||
+                              latestName.isEmpty() ||
+                              apkUrl.isEmpty() ||
+                              sha256.length() != 64
+                          ) {
+                              return;
+                          }
+
+                          availableUpdateVersion = latestName;
+                          availableUpdateApkUrl = apkUrl;
+                          availableUpdateSha256 = sha256;
+
+                          runOnUiThread(() -> {
+                              if (updateCard == null) {
+                                  return;
+                              }
+
+                              updateTitle.setText(
+                                  "ACTUALIZACIÓN DISPONIBLE · v" +
+                                  availableUpdateVersion
+                              );
+
+                              updateDetail.setText(
+                                  notes.isEmpty()
+                                      ? "Nueva versión de AireSmart lista para instalar."
+                                      : notes
+                              );
+
+                              updateButton.setText("ACTUALIZAR");
+                              updateButton.setEnabled(true);
+                              updateButton.setAlpha(1f);
+                              updateCard.setVisibility(View.VISIBLE);
+                          });
+
+                      } catch (Exception ignored) {
+                          // Si GitHub no responde, la app sigue funcionando
+                          // normalmente y simplemente oculta el aviso.
+                      }
+                  });
+              }
+
+              private String fetchHttpsText(String initialUrl)
+                  throws Exception {
+
+                  String currentUrl = initialUrl;
+
+                  for (int redirect = 0; redirect < 6; redirect++) {
+                      URL url = new URL(currentUrl);
+
+                      HttpsURLConnection conn =
+                          (HttpsURLConnection) url.openConnection();
+
+                      conn.setRequestMethod("GET");
+                      conn.setConnectTimeout(10000);
+                      conn.setReadTimeout(12000);
+                      conn.setUseCaches(false);
+                      conn.setInstanceFollowRedirects(false);
+                      conn.setRequestProperty(
+                          "Accept",
+                          "application/json"
+                      );
+                      conn.setRequestProperty(
+                          "User-Agent",
+                          "AireSmart-Android/" + "1.0.25"
+                      );
+
+                      int code = conn.getResponseCode();
+
+                      if (
+                          code == 301 ||
+                          code == 302 ||
+                          code == 303 ||
+                          code == 307 ||
+                          code == 308
+                      ) {
+                          String location =
+                              conn.getHeaderField("Location");
+
+                          conn.disconnect();
+
+                          if (
+                              location == null ||
+                              location.trim().isEmpty()
+                          ) {
+                              throw new IllegalStateException(
+                                  "update_redirect_without_location"
+                              );
+                          }
+
+                          currentUrl = new URL(
+                              url,
+                              location
+                          ).toString();
+
+                          continue;
+                      }
+
+                      if (code < 200 || code >= 300) {
+                          conn.disconnect();
+                          throw new IllegalStateException(
+                              "update_manifest_http_" + code
+                          );
+                      }
+
+                      StringBuilder result =
+                          new StringBuilder();
+
+                      try (
+                          BufferedReader reader =
+                              new BufferedReader(
+                                  new InputStreamReader(
+                                      conn.getInputStream(),
+                                      StandardCharsets.UTF_8
+                                  )
+                              )
+                      ) {
+                          String line;
+
+                          while ((line = reader.readLine()) != null) {
+                              result.append(line);
+                          }
+                      } finally {
+                          conn.disconnect();
+                      }
+
+                      return result.toString();
+                  }
+
+                  throw new IllegalStateException(
+                      "too_many_update_redirects"
+                  );
+              }
+
+              private void downloadAndInstallUpdate() {
+                  if (
+                      availableUpdateApkUrl.isEmpty() ||
+                      availableUpdateSha256.length() != 64
+                  ) {
+                      toast("No hay una actualización lista");
+                      return;
+                  }
+
+                  if (
+                      Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                      !getPackageManager().canRequestPackageInstalls()
+                  ) {
+                      try {
+                          Intent settingsIntent = new Intent(
+                              Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                              Uri.parse(
+                                  "package:" + getPackageName()
+                              )
+                          );
+
+                          startActivity(settingsIntent);
+
+                          toast(
+                              "Activa “Permitir desde esta fuente” " +
+                              "y vuelve a tocar ACTUALIZAR"
+                          );
+                      } catch (Exception error) {
+                          toast(
+                              "Android debe permitir instalar " +
+                              "actualizaciones desde AireSmart"
+                          );
+                      }
+
+                      return;
+                  }
+
+                  try {
+                      DownloadManager manager =
+                          (DownloadManager) getSystemService(
+                              DOWNLOAD_SERVICE
+                          );
+
+                      if (manager == null) {
+                          throw new IllegalStateException(
+                              "download_manager_unavailable"
+                          );
+                      }
+
+                      String fileName =
+                          "AireSmart_Update_v" +
+                          availableUpdateVersion +
+                          ".apk";
+
+                      DownloadManager.Request request =
+                          new DownloadManager.Request(
+                              Uri.parse(
+                                  availableUpdateApkUrl
+                              )
+                          );
+
+                      request.setTitle(
+                          "Actualizando AireSmart"
+                      );
+
+                      request.setDescription(
+                          "Descargando v" +
+                          availableUpdateVersion
+                      );
+
+                      request.setMimeType(
+                          "application/vnd.android.package-archive"
+                      );
+
+                      request.setAllowedOverMetered(true);
+                      request.setAllowedOverRoaming(false);
+                      request.setNotificationVisibility(
+                          DownloadManager.Request
+                              .VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+                      );
+
+                      request.setDestinationInExternalFilesDir(
+                          this,
+                          Environment.DIRECTORY_DOWNLOADS,
+                          fileName
+                      );
+
+                      long downloadId =
+                          manager.enqueue(request);
+
+                      updateButton.setEnabled(false);
+                      updateButton.setAlpha(0.7f);
+                      updateButton.setText("DESCARGANDO…");
+                      updateDetail.setText(
+                          "Descargando y verificando la actualización."
+                      );
+
+                      io.execute(
+                          () -> waitForUpdateDownload(
+                              manager,
+                              downloadId
+                          )
+                      );
+
+                  } catch (Exception error) {
+                      updateButton.setEnabled(true);
+                      updateButton.setAlpha(1f);
+                      updateButton.setText("ACTUALIZAR");
+                      toast("No se pudo iniciar la descarga");
+                  }
+              }
+
+              private void waitForUpdateDownload(
+                  DownloadManager manager,
+                  long downloadId
+              ) {
+                  for (int attempt = 0; attempt < 240; attempt++) {
+                      DownloadManager.Query query =
+                          new DownloadManager.Query();
+
+                      query.setFilterById(downloadId);
+
+                      try (
+                          android.database.Cursor cursor =
+                              manager.query(query)
+                      ) {
+                          if (
+                              cursor != null &&
+                              cursor.moveToFirst()
+                          ) {
+                              int statusIndex =
+                                  cursor.getColumnIndex(
+                                      DownloadManager.COLUMN_STATUS
+                                  );
+
+                              int status =
+                                  statusIndex >= 0
+                                      ? cursor.getInt(statusIndex)
+                                      : DownloadManager.STATUS_FAILED;
+
+                              if (
+                                  status ==
+                                  DownloadManager.STATUS_SUCCESSFUL
+                              ) {
+                                  Uri apkUri =
+                                      manager.getUriForDownloadedFile(
+                                          downloadId
+                                      );
+
+                                  if (apkUri == null) {
+                                      updateFailed(
+                                          "No se pudo abrir el APK descargado"
+                                      );
+                                      return;
+                                  }
+
+                                  try {
+                                      String downloadedSha =
+                                          sha256OfUri(apkUri);
+
+                                      if (
+                                          !availableUpdateSha256.equalsIgnoreCase(
+                                              downloadedSha
+                                          )
+                                      ) {
+                                          manager.remove(downloadId);
+
+                                          updateFailed(
+                                              "La verificación de seguridad falló"
+                                          );
+                                          return;
+                                      }
+
+                                      runOnUiThread(
+                                          () -> installDownloadedApk(
+                                              apkUri
+                                          )
+                                      );
+
+                                  } catch (Exception error) {
+                                      updateFailed(
+                                          "No se pudo verificar la actualización"
+                                      );
+                                  }
+
+                                  return;
+                              }
+
+                              if (
+                                  status ==
+                                  DownloadManager.STATUS_FAILED
+                              ) {
+                                  updateFailed(
+                                      "La descarga de la actualización falló"
+                                  );
+                                  return;
+                              }
+                          }
+                      } catch (Exception error) {
+                          updateFailed(
+                              "No se pudo comprobar la descarga"
+                          );
+                          return;
+                      }
+
+                      try {
+                          Thread.sleep(500);
+                      } catch (InterruptedException ignored) {
+                          Thread.currentThread().interrupt();
+                          return;
+                      }
+                  }
+
+                  updateFailed(
+                      "La descarga tardó demasiado"
+                  );
+              }
+
+              private String sha256OfUri(Uri uri)
+                  throws Exception {
+
+                  MessageDigest digest =
+                      MessageDigest.getInstance("SHA-256");
+
+                  try (
+                      InputStream input =
+                          getContentResolver().openInputStream(uri)
+                  ) {
+                      if (input == null) {
+                          throw new IllegalStateException(
+                              "update_file_unavailable"
+                          );
+                      }
+
+                      byte[] buffer = new byte[8192];
+                      int read;
+
+                      while ((read = input.read(buffer)) != -1) {
+                          digest.update(
+                              buffer,
+                              0,
+                              read
+                          );
+                      }
+                  }
+
+                  byte[] hash = digest.digest();
+                  StringBuilder hex = new StringBuilder();
+
+                  for (byte b : hash) {
+                      hex.append(
+                          String.format(
+                              "%02x",
+                              b & 0xff
+                          )
+                      );
+                  }
+
+                  return hex.toString();
+              }
+
+              private void installDownloadedApk(Uri apkUri) {
+                  try {
+                      updateButton.setText("INSTALANDO…");
+                      updateDetail.setText(
+                          "Android abrirá el instalador para confirmar."
+                      );
+
+                      Intent install = new Intent(
+                          Intent.ACTION_VIEW
+                      );
+
+                      install.setDataAndType(
+                          apkUri,
+                          "application/vnd.android.package-archive"
+                      );
+
+                      install.addFlags(
+                          Intent.FLAG_ACTIVITY_NEW_TASK |
+                          Intent.FLAG_GRANT_READ_URI_PERMISSION
+                      );
+
+                      startActivity(install);
+
+                  } catch (Exception error) {
+                      updateFailed(
+                          "No se pudo abrir el instalador de Android"
+                      );
+                  }
+              }
+
+              private void updateFailed(String message) {
+                  runOnUiThread(() -> {
+                      if (updateButton != null) {
+                          updateButton.setEnabled(true);
+                          updateButton.setAlpha(1f);
+                          updateButton.setText("REINTENTAR");
+                      }
+
+                      if (updateDetail != null) {
+                          updateDetail.setText(message);
+                          updateDetail.setTextColor(
+                              Color.rgb(201,54,64)
+                          );
+                      }
+                  });
               }
 
               private void showConnectionDialog() {
@@ -1660,6 +2220,13 @@ jobs:
               }
 
               private void connectMqtt() {
+                  addBlackBoxEvent(
+                      "info",
+                      "MQTT",
+                      "Conectando al broker",
+                      "Iniciando sesión segura MQTT",
+                      -1L
+                  );
                   setCloud("● CONECTANDO", Color.rgb(240,161,30), "Sincronizando…");
                   systemState.setText("SINCRONIZANDO…");
                   systemState.setTextColor(Color.rgb(92,112,136));
@@ -1687,6 +2254,15 @@ jobs:
                           mqtt.setCallback(new MqttCallbackExtended() {
                               @Override
                               public void connectComplete(boolean reconnect, String serverURI) {
+                                  addBlackBoxEvent(
+                                      "ok",
+                                      "MQTT",
+                                      reconnect ? "MQTT reconectado" : "MQTT conectado",
+                                      reconnect
+                                          ? "Sesión recuperada automáticamente"
+                                          : "Sesión establecida correctamente",
+                                      -1L
+                                  );
                                   runOnUiThread(() ->
                                       setCloud(
                                           "● BROKER",
@@ -1699,6 +2275,13 @@ jobs:
 
                               @Override
                               public void connectionLost(Throwable cause) {
+                                  addBlackBoxEvent(
+                                      "error",
+                                      "MQTT",
+                                      "MQTT desconectado",
+                                      safe(cause == null ? "Conexión perdida" : cause.getMessage()),
+                                      -1L
+                                  );
                                   runOnUiThread(() -> {
                                       setCloud("● OFFLINE", Color.rgb(201,54,64), "Conexión perdida");
                                       powerRing.setMode(PowerRingView.MODE_OFFLINE);
@@ -1727,6 +2310,13 @@ jobs:
                           mqtt.connect(o);
 
                       } catch (Exception e) {
+                          addBlackBoxEvent(
+                              "error",
+                              "MQTT",
+                              "Error de conexión MQTT",
+                              safe(e.getMessage()),
+                              -1L
+                          );
                           runOnUiThread(() -> {
                               setCloud("● ERROR", Color.rgb(201,54,64), safe(e.getMessage()));
                               powerRing.setMode(PowerRingView.MODE_OFFLINE);
@@ -1741,7 +2331,21 @@ jobs:
                           mqtt.subscribe(topicBase + "/state", 1);
                           mqtt.subscribe(topicBase + "/ack", 1);
                           mqtt.subscribe(topicBase + "/status", 1);
+                          addBlackBoxEvent(
+                              "ok",
+                              "MQTT",
+                              "Canales MQTT activos",
+                              "state · ack · status",
+                              -1L
+                          );
                       } catch (Exception e) {
+                          addBlackBoxEvent(
+                              "error",
+                              "MQTT",
+                              "Error de suscripción MQTT",
+                              safe(e.getMessage()),
+                              -1L
+                          );
                           runOnUiThread(() ->
                               setCloud(
                                   "● ERROR",
@@ -1753,360 +2357,11 @@ jobs:
                   });
               }
 
-              private static class LocalStatus {
-                  boolean motor;
-                  boolean high;
-                  boolean pump;
-                  String state;
-                  long remaining;
-              }
-
-              private static class LocalCommandResult {
-                  boolean delivered;
-                  boolean confirmed;
-                  LocalStatus status;
-              }
-
-              private void startSmartLink() {
-                  if (smartLinkRunning) return;
-                  smartLinkRunning = true;
-                  mainHandler.removeCallbacks(smartLinkProbe);
-                  mainHandler.post(smartLinkProbe);
-              }
-
-              private void stopSmartLink() {
-                  smartLinkRunning = false;
-                  mainHandler.removeCallbacks(smartLinkProbe);
-              }
-
-              private LocalStatus fetchLocalStatus(
-                  int connectTimeoutMs,
-                  int readTimeoutMs
-              ) {
-                  HttpURLConnection connection = null;
-
-                  try {
-                      URL url = new URL(
-                          LOCAL_BASE + "/status?ts=" +
-                          System.currentTimeMillis()
-                      );
-
-                      connection =
-                          (HttpURLConnection) url.openConnection();
-
-                      connection.setRequestMethod("GET");
-                      connection.setConnectTimeout(connectTimeoutMs);
-                      connection.setReadTimeout(readTimeoutMs);
-                      connection.setUseCaches(false);
-                      connection.setRequestProperty(
-                          "Connection",
-                          "close"
-                      );
-                      connection.setRequestProperty(
-                          "Accept",
-                          "application/json"
-                      );
-
-                      int code = connection.getResponseCode();
-                      if (code != 200) {
-                          return null;
-                      }
-
-                      StringBuilder body = new StringBuilder();
-
-                      try (
-                          BufferedReader reader = new BufferedReader(
-                              new InputStreamReader(
-                                  connection.getInputStream(),
-                                  StandardCharsets.UTF_8
-                              )
-                          )
-                      ) {
-                          String line;
-                          while ((line = reader.readLine()) != null) {
-                              body.append(line);
-                          }
-                      }
-
-                      JSONObject j =
-                          new JSONObject(body.toString());
-
-                      String version =
-                          j.optString("version", "");
-
-                      // Evita aceptar por error otro servidor HTTP
-                      // que casualmente use el hostname/ruta.
-                      if (!version.startsWith("AireSmart")) {
-                          return null;
-                      }
-
-                      LocalStatus status = new LocalStatus();
-                      status.motor =
-                          j.optBoolean("motor", false);
-                      status.high =
-                          j.optBoolean("high", false);
-                      status.pump =
-                          j.optBoolean("pump", false);
-                      status.state =
-                          j.optString(
-                              "state",
-                              status.motor
-                                  ? "ENCENDIDO"
-                                  : "APAGADO"
-                          );
-                      status.remaining =
-                          j.optLong("remaining", 0L);
-
-                      return status;
-
-                  } catch (Exception ignored) {
-                      return null;
-
-                  } finally {
-                      if (connection != null) {
-                          connection.disconnect();
-                      }
-                  }
-              }
-
-              private String localPathFor(
-                  String action,
-                  String value
-              ) {
-                  if ("power".equals(action)) {
-                      return "true".equals(value)
-                          ? "/on"
-                          : "/off";
-                  }
-
-                  if ("mode".equals(action)) {
-                      if ("cool".equals(value)) return "/cool";
-                      if ("fan".equals(value)) return "/fan";
-                  }
-
-                  if ("speed".equals(action)) {
-                      if ("high".equals(value)) return "/high";
-                      if ("low".equals(value)) return "/low";
-                  }
-
-                  return null;
-              }
-
-              private boolean postLocalCommand(
-                  String path
-              ) {
-                  if (path == null || path.isEmpty()) {
-                      return false;
-                  }
-
-                  HttpURLConnection connection = null;
-
-                  try {
-                      URL url =
-                          new URL(LOCAL_BASE + path);
-
-                      connection =
-                          (HttpURLConnection) url.openConnection();
-
-                      connection.setRequestMethod("POST");
-                      connection.setConnectTimeout(550);
-                      connection.setReadTimeout(900);
-                      connection.setUseCaches(false);
-                      connection.setDoOutput(false);
-                      connection.setRequestProperty(
-                          "Connection",
-                          "close"
-                      );
-
-                      int code = connection.getResponseCode();
-
-                      return code >= 200 && code < 300;
-
-                  } catch (Exception ignored) {
-                      return false;
-
-                  } finally {
-                      if (connection != null) {
-                          connection.disconnect();
-                      }
-                  }
-              }
-
-              private boolean localStatusConfirms(
-                  String action,
-                  String value,
-                  LocalStatus status
-              ) {
-                  if (status == null) return false;
-
-                  String upper =
-                      status.state == null
-                          ? ""
-                          : status.state.toUpperCase();
-
-                  if ("power".equals(action)) {
-                      if ("true".equals(value)) {
-                          return
-                              upper.contains("REMOJ") ||
-                              upper.contains("ENCEND") ||
-                              status.motor ||
-                              status.pump;
-                      }
-
-                      return
-                          upper.contains("APAG") &&
-                          !status.motor;
-                  }
-
-                  if ("speed".equals(action)) {
-                      if (!status.motor) {
-                          return false;
-                      }
-
-                      if ("high".equals(value)) {
-                          return status.high;
-                      }
-
-                      if ("low".equals(value)) {
-                          return !status.high;
-                      }
-                  }
-
-                  if ("mode".equals(action)) {
-                      if ("fan".equals(value)) {
-                          return
-                              upper.contains("SOLO AIRE") &&
-                              status.motor &&
-                              !status.pump;
-                      }
-
-                      if ("cool".equals(value)) {
-                          return
-                              !upper.contains("SOLO AIRE") &&
-                              (
-                                  upper.contains("REMOJ") ||
-                                  upper.contains("ENCEND") ||
-                                  status.pump
-                              );
-                      }
-                  }
-
-                  return false;
-              }
-
-              private LocalCommandResult tryLocalCommand(
-                  String action,
-                  String value
-              ) {
-                  LocalCommandResult result =
-                      new LocalCommandResult();
-
-                  String path =
-                      localPathFor(action, value);
-
-                  if (!postLocalCommand(path)) {
-                      result.delivered = false;
-                      result.confirmed = false;
-                      return result;
-                  }
-
-                  result.delivered = true;
-
-                  /*
-                   * El firmware hace cambio seguro de velocidad,
-                   * que puede tardar ~1.5 s. Por eso verificamos
-                   * el estado real durante una ventana corta antes
-                   * de declarar la orden confirmada.
-                   */
-                  long deadline =
-                      System.currentTimeMillis() + 3200L;
-
-                  LocalStatus latest = null;
-
-                  do {
-                      latest =
-                          fetchLocalStatus(500, 800);
-
-                      if (
-                          latest != null &&
-                          localStatusConfirms(
-                              action,
-                              value,
-                              latest
-                          )
-                      ) {
-                          result.confirmed = true;
-                          result.status = latest;
-                          return result;
-                      }
-
-                      try {
-                          Thread.sleep(160L);
-                      } catch (
-                          InterruptedException interrupted
-                      ) {
-                          Thread.currentThread().interrupt();
-                          break;
-                      }
-
-                  } while (
-                      System.currentTimeMillis() < deadline
-                  );
-
-                  result.confirmed = false;
-                  result.status = latest;
-                  return result;
-              }
-
-              private void applyLocalResult(
-                  LocalCommandResult result
-              ) {
-                  mainHandler.removeCallbacks(ackTimeout);
-
-                  if (result.status != null) {
-                      motorOn = result.status.motor;
-                      high = result.status.high;
-
-                      paintState(
-                          result.status.state,
-                          result.status.remaining
-                      );
-                  }
-
-                  clearPendingCommand();
-
-                  localAvailable = true;
-                  localLastSeenMs =
-                      System.currentTimeMillis();
-                  localProbeMisses = 0;
-
-                  setCloud(
-                      "● LOCAL",
-                      Color.rgb(13,136,74),
-                      "SmartLink · conexión directa"
-                  );
-
-                  showAck(
-                      result.confirmed
-                          ? "ORDEN CONFIRMADA · LOCAL"
-                          : "ORDEN RECIBIDA · LOCAL",
-                      result.confirmed
-                  );
-              }
-
-              private boolean shouldUseLocal() {
-                  return
-                      localAvailable &&
-                      (
-                          System.currentTimeMillis() -
-                          localLastSeenMs
-                      ) < 15000L;
-              }
-
               private void clearPendingCommand() {
                   pendingId = null;
                   pendingAction = null;
                   pendingValue = null;
+                  pendingSentAt = 0L;
               }
 
               private boolean stateConfirmsPending(
@@ -2193,7 +2448,16 @@ jobs:
                       return;
                   }
 
+                  long latency = pendingLatencyMs();
+                  String command = pendingCommandLabel();
                   mainHandler.removeCallbacks(ackTimeout);
+                  addBlackBoxEvent(
+                      "ok",
+                      "ACK",
+                      "Orden confirmada por estado",
+                      command,
+                      latency
+                  );
                   clearPendingCommand();
 
                   runOnUiThread(() ->
@@ -2218,6 +2482,14 @@ jobs:
                               motorOn ? "ENCENDIDO" : "APAGADO"
                           );
                           long soak = j.optLong("soakRemaining", 0);
+
+                          logBlackBoxState(
+                              state,
+                              motorOn,
+                              high,
+                              pumpOn,
+                              soak
+                          );
 
                           confirmPendingFromState(
                               state,
@@ -2252,6 +2524,14 @@ jobs:
                               long soak =
                                   j.optLong("soakRemaining", 0);
 
+                              logBlackBoxState(
+                                  state,
+                                  motorOn,
+                                  high,
+                                  pumpOn,
+                                  soak
+                              );
+
                               confirmPendingFromState(
                                   state,
                                   motorOn,
@@ -2280,8 +2560,9 @@ jobs:
                                   return;
                               }
 
+                              long latency = pendingLatencyMs();
+                              String command = pendingCommandLabel();
                               mainHandler.removeCallbacks(ackTimeout);
-                              clearPendingCommand();
 
                               boolean accepted =
                                   j.optBoolean("accepted", false);
@@ -2307,6 +2588,17 @@ jobs:
                               long soak =
                                   j.optLong("soakRemaining", 0);
 
+                              addBlackBoxEvent(
+                                  accepted ? "ok" : "error",
+                                  "ACK",
+                                  accepted ? "ACK recibido" : "Orden rechazada",
+                                  accepted
+                                      ? command
+                                      : command + " · " + friendlyResult(result),
+                                  latency
+                              );
+                              clearPendingCommand();
+
                               runOnUiThread(() -> {
                                   showAck(
                                       accepted
@@ -2320,6 +2612,13 @@ jobs:
                               return;
                           }
 
+                          addBlackBoxEvent(
+                              online ? "ok" : "warn",
+                              "STATE",
+                              online ? "AireSmart en línea" : "AireSmart sin conexión",
+                              online ? "Estado remoto disponible" : "El ESP32 reportó offline",
+                              -1L
+                          );
                           runOnUiThread(() -> {
                               setCloud(
                                   online ? "● EN LÍNEA" : "● OFFLINE",
@@ -2345,8 +2644,9 @@ jobs:
                               return;
                           }
 
+                          long latency = pendingLatencyMs();
+                          String command = pendingCommandLabel();
                           mainHandler.removeCallbacks(ackTimeout);
-                          clearPendingCommand();
 
                           boolean accepted = j.optBoolean("accepted", false);
                           String result = j.optString(
@@ -2360,6 +2660,17 @@ jobs:
                               "state",
                               motorOn ? "ENCENDIDO" : "APAGADO"
                           );
+
+                          addBlackBoxEvent(
+                              accepted ? "ok" : "error",
+                              "ACK",
+                              accepted ? "ACK recibido" : "Orden rechazada",
+                              accepted
+                                  ? command
+                                  : command + " · " + friendlyResult(result),
+                              latency
+                          );
+                          clearPendingCommand();
 
                           runOnUiThread(() -> {
                               showAck(
@@ -2379,6 +2690,13 @@ jobs:
                       }
 
                   } catch (Exception e) {
+                      addBlackBoxEvent(
+                          "error",
+                          "MQTT",
+                          "Mensaje MQTT no válido",
+                          safe(e.getMessage()),
+                          -1L
+                      );
                       runOnUiThread(() -> showAck("MENSAJE MQTT NO VÁLIDO", false));
                   }
               }
@@ -2395,54 +2713,22 @@ jobs:
                   sendCommand("mode", mode, false);
               }
 
-              private void sendCommand(
-                  String action,
-                  String value,
-                  boolean boolValue
-              ) {
-                  boolean mqttReady =
-                      mqtt != null && mqtt.isConnected();
-
-                  if (!shouldUseLocal() && !mqttReady) {
-                      /*
-                       * Puede que el teléfono haya llegado a casa justo ahora
-                       * y el sondeo periódico aún no lo haya detectado.
-                       * Hacemos un intento local directo antes de declarar
-                       * que no hay ruta.
-                       */
-                      localIo.execute(() -> {
-                          LocalStatus probe =
-                              fetchLocalStatus(500, 800);
-
-                          if (probe != null) {
-                              localAvailable = true;
-                              localLastSeenMs =
-                                  System.currentTimeMillis();
-                              localProbeMisses = 0;
-
-                              runOnUiThread(() ->
-                                  sendCommand(
-                                      action,
-                                      value,
-                                      boolValue
-                                  )
-                              );
-                          } else {
-                              runOnUiThread(() ->
-                                  toast(
-                                      "AireSmart no está conectado"
-                                  )
-                              );
-                          }
-                      });
+              private void sendCommand(String action, String value, boolean boolValue) {
+                  if (mqtt == null || !mqtt.isConnected()) {
+                      addBlackBoxEvent(
+                          "error",
+                          "CMD",
+                          "Orden no enviada",
+                          commandLabel(action, value) + " · MQTT sin conexión",
+                          -1L
+                      );
+                      toast("AireSmart no está conectado");
                       return;
                   }
 
                   String id =
                       System.currentTimeMillis() + "-" +
-                      UUID.randomUUID()
-                          .toString()
-                          .substring(0,6);
+                      UUID.randomUUID().toString().substring(0,6);
 
                   String json = boolValue
                       ? "{\"id\":\""+id+"\",\"action\":\""+action+"\",\"value\":"+value+"}"
@@ -2451,115 +2737,48 @@ jobs:
                   pendingId = id;
                   pendingAction = action;
                   pendingValue = value;
-
-                  showAck("ENVIANDO ORDEN…", false);
-                  powerRing.setMode(
-                      PowerRingView.MODE_PENDING
+                  pendingSentAt = System.currentTimeMillis();
+                  addBlackBoxEvent(
+                      "info",
+                      "CMD",
+                      commandLabel(action, value) + " enviado",
+                      "Orden preparada para publicación MQTT",
+                      -1L
                   );
+                  showAck("ENVIANDO ORDEN…", false);
+                  powerRing.setMode(PowerRingView.MODE_PENDING);
 
                   mainHandler.removeCallbacks(ackTimeout);
-                  mainHandler.postDelayed(
-                      ackTimeout,
-                      8000
-                  );
+                  mainHandler.postDelayed(ackTimeout, 8000);
 
-                  /*
-                   * SMARTLINK:
-                   * Si el último sondeo vio al ESP32 localmente,
-                   * probamos primero la ruta directa. Solo si esa
-                   * ruta NO recibió la orden hacemos fallback a MQTT.
-                   */
-                  if (shouldUseLocal()) {
-                      localIo.execute(() -> {
-                          LocalCommandResult local =
-                              tryLocalCommand(
-                                  action,
-                                  value
-                              );
-
-                          if (local.delivered) {
-                              runOnUiThread(() ->
-                                  applyLocalResult(local)
-                              );
-                              return;
-                          }
-
-                          localAvailable = false;
-                          localProbeMisses = 2;
-
-                          publishMqttFallback(
-                              json,
-                              id
-                          );
-                      });
-
-                      return;
-                  }
-
-                  publishMqttFallback(
-                      json,
-                      id
-                  );
-              }
-
-              private void publishMqttFallback(
-                  String json,
-                  String id
-              ) {
                   io.execute(() -> {
                       try {
-                          if (
-                              mqtt == null ||
-                              !mqtt.isConnected()
-                          ) {
-                              throw new IllegalStateException(
-                                  "sin ruta local ni MQTT"
-                              );
-                          }
-
                           MqttMessage m =
-                              new MqttMessage(
-                                  json.getBytes(
-                                      StandardCharsets.UTF_8
-                                  )
-                              );
-
+                              new MqttMessage(json.getBytes(StandardCharsets.UTF_8));
                           m.setQos(1);
                           m.setRetained(false);
-
-                          mqtt.publish(
-                              topicBase + "/cmd",
-                              m
-                          );
-
-                          runOnUiThread(() ->
-                              setCloud(
-                                  "● BROKER",
-                                  Color.rgb(13,136,74),
-                                  "SmartLink · remoto"
-                              )
+                          mqtt.publish(topicBase + "/cmd", m);
+                          addBlackBoxEvent(
+                              "ok",
+                              "MQTT",
+                              "MQTT publicado correctamente",
+                              commandLabel(action, value) + " · QoS 1",
+                              -1L
                           );
 
                       } catch (Exception e) {
+                          addBlackBoxEvent(
+                              "error",
+                              "CMD",
+                              "Error al enviar orden",
+                              commandLabel(action, value) + " · " + safe(e.getMessage()),
+                              pendingLatencyMs()
+                          );
                           runOnUiThread(() -> {
-                              mainHandler.removeCallbacks(
-                                  ackTimeout
-                              );
-
-                              /*
-                               * Solo limpiamos si sigue siendo
-                               * exactamente la misma orden.
-                               */
-                              if (
-                                  pendingId != null &&
-                                  pendingId.equals(id)
-                              ) {
-                                  clearPendingCommand();
-                              }
-
+                              mainHandler.removeCallbacks(ackTimeout);
+                              clearPendingCommand();
                               showAck(
-                                  "SIN CONEXIÓN · " +
-                                  safe(e.getMessage()),
+                                  "ERROR AL ENVIAR · " + safe(e.getMessage()),
                                   false
                               );
                               restoreRing();
@@ -2765,6 +2984,788 @@ jobs:
                       .start();
               }
 
+              private static class BlackBoxEvent {
+                  long time;
+                  String level;
+                  String category;
+                  String title;
+                  String detail;
+                  long latencyMs;
+
+                  BlackBoxEvent(
+                      long time,
+                      String level,
+                      String category,
+                      String title,
+                      String detail,
+                      long latencyMs
+                  ) {
+                      this.time = time;
+                      this.level = level;
+                      this.category = category;
+                      this.title = title;
+                      this.detail = detail;
+                      this.latencyMs = latencyMs;
+                  }
+              }
+
+              private void loadBlackBoxEvents() {
+                  synchronized (blackBoxLock) {
+                      blackBoxEvents.clear();
+                      String raw = prefs == null
+                          ? ""
+                          : prefs.getString(PREF_BLACK_BOX_LOG, "");
+
+                      if (raw == null || raw.trim().isEmpty()) {
+                          return;
+                      }
+
+                      try {
+                          JSONArray array = new JSONArray(raw);
+                          for (int i = 0; i < array.length(); i++) {
+                              JSONObject j = array.optJSONObject(i);
+                              if (j == null) continue;
+
+                              blackBoxEvents.add(
+                                  new BlackBoxEvent(
+                                      j.optLong("time", 0L),
+                                      j.optString("level", "info"),
+                                      j.optString("category", "APP"),
+                                      j.optString("title", "Evento"),
+                                      j.optString("detail", ""),
+                                      j.optLong("latencyMs", -1L)
+                                  )
+                              );
+                          }
+                      } catch (Exception ignored) {
+                          blackBoxEvents.clear();
+                      }
+                  }
+              }
+
+              private void persistBlackBoxEventsLocked() {
+                  if (prefs == null) return;
+
+                  JSONArray array = new JSONArray();
+                  try {
+                      for (BlackBoxEvent event : blackBoxEvents) {
+                          JSONObject j = new JSONObject();
+                          j.put("time", event.time);
+                          j.put("level", event.level);
+                          j.put("category", event.category);
+                          j.put("title", event.title);
+                          j.put("detail", event.detail);
+                          j.put("latencyMs", event.latencyMs);
+                          array.put(j);
+                      }
+                  } catch (Exception ignored) {}
+
+                  prefs.edit()
+                      .putString(PREF_BLACK_BOX_LOG, array.toString())
+                      .apply();
+              }
+
+              private void addBlackBoxEvent(
+                  String level,
+                  String category,
+                  String title,
+                  String detail,
+                  long latencyMs
+              ) {
+                  long now = System.currentTimeMillis();
+                  String safeLevel = level == null ? "info" : level;
+                  String safeCategory = category == null ? "APP" : category;
+                  String safeTitle = title == null ? "Evento" : title;
+                  String safeDetail = detail == null ? "" : detail;
+
+                  if (safeDetail.length() > 220) {
+                      safeDetail = safeDetail.substring(0, 220);
+                  }
+
+                  synchronized (blackBoxLock) {
+                      if (!blackBoxEvents.isEmpty()) {
+                          BlackBoxEvent last =
+                              blackBoxEvents.get(blackBoxEvents.size() - 1);
+
+                          if (
+                              now - last.time < 3000L &&
+                              safeCategory.equals(last.category) &&
+                              safeTitle.equals(last.title) &&
+                              safeDetail.equals(last.detail)
+                          ) {
+                              return;
+                          }
+                      }
+
+                      blackBoxEvents.add(
+                          new BlackBoxEvent(
+                              now,
+                              safeLevel,
+                              safeCategory,
+                              safeTitle,
+                              safeDetail,
+                              latencyMs
+                          )
+                      );
+
+                      while (blackBoxEvents.size() > BLACK_BOX_MAX_EVENTS) {
+                          blackBoxEvents.remove(0);
+                      }
+
+                      persistBlackBoxEventsLocked();
+                  }
+
+                  if (blackBoxDialog != null) {
+                      runOnUiThread(this::refreshBlackBoxUi);
+                  }
+              }
+
+              private void logBlackBoxState(
+                  String state,
+                  boolean currentMotor,
+                  boolean currentHigh,
+                  boolean currentPump,
+                  long soakRemaining
+              ) {
+                  String safeState = state == null ? "--" : state.toUpperCase(Locale.ROOT);
+                  String signature =
+                      safeState + "|" + currentMotor + "|" + currentHigh + "|" + currentPump + "|" +
+                      (soakRemaining > 0 ? "SOAK" : "READY");
+
+                  if (signature.equals(lastBlackBoxStateSignature)) return;
+                  lastBlackBoxStateSignature = signature;
+
+                  String detail = safeState +
+                      " · " + (currentHigh ? "ALTA" : "BAJA") +
+                      " · BOMBA " + (currentPump ? "ON" : "OFF");
+
+                  if (soakRemaining > 0) {
+                      detail += " · remojo " + soakRemaining + " s";
+                  }
+
+                  addBlackBoxEvent(
+                      "info",
+                      "STATE",
+                      "Estado sincronizado",
+                      detail,
+                      -1L
+                  );
+              }
+
+              private long pendingLatencyMs() {
+                  if (pendingSentAt <= 0L) return -1L;
+                  return Math.max(0L, System.currentTimeMillis() - pendingSentAt);
+              }
+
+              private String pendingCommandLabel() {
+                  return commandLabel(pendingAction, pendingValue);
+              }
+
+              private String commandLabel(String action, String value) {
+                  if ("power".equals(action)) {
+                      return "true".equals(value) ? "ENCENDER" : "APAGAR";
+                  }
+                  if ("speed".equals(action)) {
+                      return "high".equals(value) ? "ALTA" : "BAJA";
+                  }
+                  if ("mode".equals(action)) {
+                      return "fan".equals(value) ? "SOLO AIRE" : "ENFRIAR";
+                  }
+                  if (action == null || action.isEmpty()) return "ORDEN";
+                  return action.toUpperCase(Locale.ROOT);
+              }
+
+              private void showBlackBox() {
+                  blackBoxFilter = "all";
+                  blackBoxDialog = new AlertDialog.Builder(this)
+                      .setView(buildBlackBoxUi())
+                      .create();
+
+                  blackBoxDialog.setOnDismissListener(d -> {
+                      blackBoxDialog = null;
+                      blackBoxTimeline = null;
+                      blackBoxAckCount = null;
+                      blackBoxErrorCount = null;
+                      blackBoxAvgLatency = null;
+                      blackBoxEventCount = null;
+                  });
+
+                  blackBoxDialog.setOnShowListener(d -> {
+                      if (blackBoxDialog.getWindow() != null) {
+                          blackBoxDialog.getWindow().setLayout(-1, -1);
+                          blackBoxDialog.getWindow().setBackgroundDrawable(
+                              bg(Color.rgb(232,235,239), 0)
+                          );
+                      }
+                  });
+
+                  blackBoxDialog.show();
+              }
+
+              private View buildBlackBoxUi() {
+                  ScrollView scroll = new ScrollView(this);
+                  scroll.setFillViewport(true);
+                  scroll.setBackgroundColor(Color.rgb(232,235,239));
+
+                  LinearLayout root = new LinearLayout(this);
+                  root.setOrientation(LinearLayout.VERTICAL);
+                  root.setPadding(dp(16), dp(18), dp(16), dp(26));
+                  scroll.addView(root, new ScrollView.LayoutParams(-1, -1));
+
+                  LinearLayout header = new LinearLayout(this);
+                  header.setOrientation(LinearLayout.HORIZONTAL);
+                  header.setGravity(Gravity.CENTER_VERTICAL);
+
+                  Button back = button("‹", Color.rgb(245,246,248));
+                  back.setTextColor(Color.rgb(30,35,40));
+                  back.setTextSize(25);
+                  back.setOnClickListener(v -> {
+                      if (blackBoxDialog != null) blackBoxDialog.dismiss();
+                  });
+                  header.addView(back, lp(46, 46));
+
+                  LinearLayout headerText = new LinearLayout(this);
+                  headerText.setOrientation(LinearLayout.VERTICAL);
+                  headerText.setGravity(Gravity.CENTER);
+                  TextView title = text(
+                      "Caja Negra",
+                      21,
+                      Color.rgb(29,34,40),
+                      true
+                  );
+                  TextView sub = text(
+                      "AireSmart · diagnóstico local",
+                      11,
+                      Color.rgb(112,119,128),
+                      false
+                  );
+                  headerText.addView(title);
+                  headerText.addView(sub);
+                  header.addView(
+                      headerText,
+                      new LinearLayout.LayoutParams(0, -2, 1)
+                  );
+
+                  View headerSpacer = new View(this);
+                  header.addView(headerSpacer, lp(46, 46));
+                  root.addView(header);
+                  space(root, 14);
+
+                  LinearLayout hero = card();
+                  hero.setPadding(dp(16), dp(16), dp(16), dp(16));
+
+                  LinearLayout heroTop = new LinearLayout(this);
+                  heroTop.setOrientation(LinearLayout.HORIZONTAL);
+                  heroTop.setGravity(Gravity.CENTER_VERTICAL);
+
+                  LinearLayout livePill = new LinearLayout(this);
+                  livePill.setOrientation(LinearLayout.HORIZONTAL);
+                  livePill.setGravity(Gravity.CENTER_VERTICAL);
+                  livePill.setPadding(dp(12), dp(8), dp(12), dp(8));
+                  livePill.setBackground(bg(Color.rgb(250,250,251), 18));
+
+                  boolean connected = mqtt != null && mqtt.isConnected();
+                  SignalDotView liveDot = new SignalDotView(
+                      this,
+                      connected ? "ok" : "bad"
+                  );
+                  livePill.addView(liveDot, lp(18, 18));
+                  spaceHorizontal(livePill, 8);
+                  TextView liveText = text(
+                      connected ? "Conectado" : "Sin conexión",
+                      12,
+                      Color.rgb(35,40,46),
+                      true
+                  );
+                  livePill.addView(liveText);
+                  heroTop.addView(livePill);
+
+                  TextView liveLabel = text(
+                      "Registro en vivo",
+                      11,
+                      Color.rgb(112,119,128),
+                      false
+                  );
+                  liveLabel.setGravity(Gravity.END);
+                  heroTop.addView(
+                      liveLabel,
+                      new LinearLayout.LayoutParams(0, -2, 1)
+                  );
+                  hero.addView(heroTop);
+                  space(hero, 14);
+
+                  LinearLayout metrics = new LinearLayout(this);
+                  metrics.setOrientation(LinearLayout.HORIZONTAL);
+                  blackBoxAckCount = metricTile(metrics, "0", "ACK correctos");
+                  spaceHorizontal(metrics, 8);
+                  blackBoxErrorCount = metricTile(metrics, "0", "Fallos");
+                  spaceHorizontal(metrics, 8);
+                  blackBoxAvgLatency = metricTile(metrics, "--", "ms promedio");
+                  hero.addView(metrics);
+                  space(hero, 14);
+
+                  LinearLayout legendTop = new LinearLayout(this);
+                  legendTop.setOrientation(LinearLayout.HORIZONTAL);
+                  legendTop.addView(
+                      blackBoxLegend("ok", "Correcto", "respiración suave"),
+                      new LinearLayout.LayoutParams(0, -2, 1)
+                  );
+                  spaceHorizontal(legendTop, 8);
+                  legendTop.addView(
+                      blackBoxLegend("info", "Información", "onda tipo radar"),
+                      new LinearLayout.LayoutParams(0, -2, 1)
+                  );
+                  hero.addView(legendTop);
+                  space(hero, 8);
+
+                  LinearLayout legendBottom = new LinearLayout(this);
+                  legendBottom.setOrientation(LinearLayout.HORIZONTAL);
+                  legendBottom.addView(
+                      blackBoxLegend("warn", "Atención", "pulso naranja"),
+                      new LinearLayout.LayoutParams(0, -2, 1)
+                  );
+                  spaceHorizontal(legendBottom, 8);
+                  legendBottom.addView(
+                      blackBoxLegend("bad", "Error", "doble latido"),
+                      new LinearLayout.LayoutParams(0, -2, 1)
+                  );
+                  hero.addView(legendBottom);
+                  root.addView(hero);
+                  space(root, 14);
+
+                  LinearLayout eventsCard = card();
+                  LinearLayout eventHeader = new LinearLayout(this);
+                  eventHeader.setOrientation(LinearLayout.HORIZONTAL);
+                  eventHeader.setGravity(Gravity.CENTER_VERTICAL);
+                  TextView eventTitle = text(
+                      "EVENTOS",
+                      13,
+                      Color.rgb(35,40,46),
+                      true
+                  );
+                  eventTitle.setGravity(Gravity.START);
+                  eventHeader.addView(
+                      eventTitle,
+                      new LinearLayout.LayoutParams(0, -2, 1)
+                  );
+                  blackBoxEventCount = text(
+                      "0 eventos",
+                      10,
+                      Color.rgb(112,119,128),
+                      false
+                  );
+                  eventHeader.addView(blackBoxEventCount);
+                  eventsCard.addView(eventHeader);
+                  space(eventsCard, 10);
+
+                  LinearLayout filterRow1 = new LinearLayout(this);
+                  filterRow1.setOrientation(LinearLayout.HORIZONTAL);
+                  addBlackBoxFilterButton(filterRow1, "Todos", "all");
+                  spaceHorizontal(filterRow1, 6);
+                  addBlackBoxFilterButton(filterRow1, "Órdenes", "CMD");
+                  spaceHorizontal(filterRow1, 6);
+                  addBlackBoxFilterButton(filterRow1, "MQTT", "MQTT");
+                  eventsCard.addView(filterRow1);
+                  space(eventsCard, 6);
+
+                  LinearLayout filterRow2 = new LinearLayout(this);
+                  filterRow2.setOrientation(LinearLayout.HORIZONTAL);
+                  addBlackBoxFilterButton(filterRow2, "ACK", "ACK");
+                  spaceHorizontal(filterRow2, 6);
+                  addBlackBoxFilterButton(filterRow2, "Errores", "error");
+                  eventsCard.addView(filterRow2);
+                  space(eventsCard, 10);
+
+                  blackBoxTimeline = new LinearLayout(this);
+                  blackBoxTimeline.setOrientation(LinearLayout.VERTICAL);
+                  eventsCard.addView(blackBoxTimeline);
+                  root.addView(eventsCard);
+                  space(root, 14);
+
+                  LinearLayout actions = card();
+                  TextView actionsTitle = text(
+                      "ACCIONES",
+                      12,
+                      Color.rgb(92,112,136),
+                      true
+                  );
+                  actionsTitle.setGravity(Gravity.START);
+                  actions.addView(actionsTitle);
+                  space(actions, 9);
+
+                  LinearLayout actionRow1 = new LinearLayout(this);
+                  actionRow1.setOrientation(LinearLayout.HORIZONTAL);
+                  Button refresh = button("Actualizar", Color.rgb(32,37,43));
+                  refresh.setOnClickListener(v -> refreshBlackBoxUi());
+                  Button copy = button("Copiar diagnóstico", Color.rgb(92,112,136));
+                  copy.setOnClickListener(v -> copyBlackBoxDiagnostic());
+                  actionRow1.addView(refresh, new LinearLayout.LayoutParams(0, dp(50), 1));
+                  spaceHorizontal(actionRow1, 8);
+                  actionRow1.addView(copy, new LinearLayout.LayoutParams(0, dp(50), 1));
+                  actions.addView(actionRow1);
+                  space(actions, 8);
+
+                  LinearLayout actionRow2 = new LinearLayout(this);
+                  actionRow2.setOrientation(LinearLayout.HORIZONTAL);
+                  Button share = button("Exportar registro", Color.rgb(58,101,173));
+                  share.setOnClickListener(v -> shareBlackBoxDiagnostic());
+                  Button clear = button("Borrar historial", Color.rgb(201,54,64));
+                  clear.setOnClickListener(v -> confirmClearBlackBox());
+                  actionRow2.addView(share, new LinearLayout.LayoutParams(0, dp(50), 1));
+                  spaceHorizontal(actionRow2, 8);
+                  actionRow2.addView(clear, new LinearLayout.LayoutParams(0, dp(50), 1));
+                  actions.addView(actionRow2);
+                  root.addView(actions);
+
+                  TextView version = text(
+                      "AireSmart v1.0.25 · Caja Negra",
+                      10,
+                      Color.rgb(132,148,167),
+                      false
+                  );
+                  LinearLayout.LayoutParams versionLp = lp(-1, -2);
+                  versionLp.topMargin = dp(16);
+                  root.addView(version, versionLp);
+
+                  refreshBlackBoxUi();
+                  animateEntrance(root);
+                  return scroll;
+              }
+
+              private TextView metricTile(
+                  LinearLayout parent,
+                  String value,
+                  String label
+              ) {
+                  LinearLayout tile = new LinearLayout(this);
+                  tile.setOrientation(LinearLayout.VERTICAL);
+                  tile.setGravity(Gravity.CENTER);
+                  tile.setPadding(dp(8), dp(10), dp(8), dp(10));
+                  tile.setBackground(bg(Color.rgb(250,250,251), 16));
+
+                  TextView number = text(
+                      value,
+                      19,
+                      Color.rgb(29,34,40),
+                      true
+                  );
+                  TextView caption = text(
+                      label,
+                      9,
+                      Color.rgb(112,119,128),
+                      false
+                  );
+                  tile.addView(number);
+                  tile.addView(caption);
+                  parent.addView(
+                      tile,
+                      new LinearLayout.LayoutParams(0, dp(68), 1)
+                  );
+                  return number;
+              }
+
+              private View blackBoxLegend(
+                  String level,
+                  String title,
+                  String detail
+              ) {
+                  LinearLayout item = new LinearLayout(this);
+                  item.setOrientation(LinearLayout.HORIZONTAL);
+                  item.setGravity(Gravity.CENTER_VERTICAL);
+                  item.setPadding(dp(10), dp(9), dp(10), dp(9));
+                  item.setBackground(bg(Color.rgb(250,250,251), 15));
+
+                  item.addView(new SignalDotView(this, level), lp(18, 18));
+                  spaceHorizontal(item, 9);
+
+                  LinearLayout labels = new LinearLayout(this);
+                  labels.setOrientation(LinearLayout.VERTICAL);
+                  TextView t = text(title, 10, Color.rgb(35,40,46), true);
+                  t.setGravity(Gravity.START);
+                  TextView d = text(detail, 8, Color.rgb(112,119,128), false);
+                  d.setGravity(Gravity.START);
+                  labels.addView(t);
+                  labels.addView(d);
+                  item.addView(labels);
+                  return item;
+              }
+
+              private void addBlackBoxFilterButton(
+                  LinearLayout row,
+                  String label,
+                  String filter
+              ) {
+                  Button b = button(label, Color.rgb(236,239,242));
+                  b.setTextColor(Color.rgb(50,58,67));
+                  b.setTextSize(11);
+                  b.setOnClickListener(v -> {
+                      blackBoxFilter = filter;
+                      refreshBlackBoxUi();
+                  });
+                  row.addView(
+                      b,
+                      new LinearLayout.LayoutParams(0, dp(42), 1)
+                  );
+              }
+
+              private boolean blackBoxMatches(BlackBoxEvent event) {
+                  if ("all".equals(blackBoxFilter)) return true;
+                  if ("error".equals(blackBoxFilter)) {
+                      return "error".equals(event.level);
+                  }
+                  return blackBoxFilter.equals(event.category);
+              }
+
+              private void refreshBlackBoxUi() {
+                  if (blackBoxTimeline == null) return;
+
+                  ArrayList<BlackBoxEvent> snapshot;
+                  synchronized (blackBoxLock) {
+                      snapshot = new ArrayList<>(blackBoxEvents);
+                  }
+
+                  int ackOk = 0;
+                  int errors = 0;
+                  long latencyTotal = 0L;
+                  int latencyCount = 0;
+                  int visible = 0;
+
+                  for (BlackBoxEvent event : snapshot) {
+                      if (
+                          "ACK".equals(event.category) &&
+                          "ok".equals(event.level)
+                      ) {
+                          ackOk++;
+                      }
+                      if ("error".equals(event.level)) errors++;
+                      if (
+                          "ACK".equals(event.category) &&
+                          event.latencyMs >= 0L
+                      ) {
+                          latencyTotal += event.latencyMs;
+                          latencyCount++;
+                      }
+                  }
+
+                  if (blackBoxAckCount != null) {
+                      blackBoxAckCount.setText(String.valueOf(ackOk));
+                  }
+                  if (blackBoxErrorCount != null) {
+                      blackBoxErrorCount.setText(String.valueOf(errors));
+                  }
+                  if (blackBoxAvgLatency != null) {
+                      blackBoxAvgLatency.setText(
+                          latencyCount == 0
+                              ? "--"
+                              : String.valueOf(latencyTotal / latencyCount)
+                      );
+                  }
+
+                  blackBoxTimeline.removeAllViews();
+                  int shown = 0;
+                  for (int i = snapshot.size() - 1; i >= 0; i--) {
+                      BlackBoxEvent event = snapshot.get(i);
+                      if (!blackBoxMatches(event)) continue;
+                      visible++;
+                      if (shown >= 60) continue;
+                      blackBoxTimeline.addView(blackBoxEventRow(event));
+                      shown++;
+                  }
+
+                  if (shown == 0) {
+                      TextView empty = text(
+                          "Aún no hay eventos en este filtro.",
+                          11,
+                          Color.rgb(112,119,128),
+                          false
+                      );
+                      empty.setPadding(0, dp(18), 0, dp(18));
+                      blackBoxTimeline.addView(empty);
+                  }
+
+                  if (blackBoxEventCount != null) {
+                      blackBoxEventCount.setText(
+                          visible + (visible == 1 ? " evento" : " eventos")
+                      );
+                  }
+              }
+
+              private View blackBoxEventRow(BlackBoxEvent event) {
+                  LinearLayout row = new LinearLayout(this);
+                  row.setOrientation(LinearLayout.HORIZONTAL);
+                  row.setGravity(Gravity.TOP);
+                  row.setPadding(0, dp(10), 0, dp(10));
+
+                  SimpleDateFormat fmt = new SimpleDateFormat(
+                      "HH:mm:ss",
+                      Locale.getDefault()
+                  );
+                  TextView time = text(
+                      fmt.format(new Date(event.time)),
+                      9,
+                      Color.rgb(112,119,128),
+                      false
+                  );
+                  time.setGravity(Gravity.START);
+                  row.addView(time, lp(58, -2));
+
+                  String dotLevel = event.level;
+                  if ("error".equals(dotLevel)) dotLevel = "bad";
+                  row.addView(new SignalDotView(this, dotLevel), lp(18, 18));
+                  spaceHorizontal(row, 9);
+
+                  LinearLayout labels = new LinearLayout(this);
+                  labels.setOrientation(LinearLayout.VERTICAL);
+                  TextView title = text(
+                      event.title,
+                      12,
+                      Color.rgb(35,40,46),
+                      true
+                  );
+                  title.setGravity(Gravity.START);
+                  labels.addView(title);
+
+                  if (event.detail != null && !event.detail.isEmpty()) {
+                      TextView detail = text(
+                          event.detail,
+                          10,
+                          Color.rgb(112,119,128),
+                          false
+                      );
+                      detail.setGravity(Gravity.START);
+                      labels.addView(detail);
+                  }
+
+                  if (event.latencyMs >= 0L) {
+                      TextView latency = text(
+                          event.latencyMs >= 1000L
+                              ? String.format(
+                                  Locale.getDefault(),
+                                  "%.1f s",
+                                  event.latencyMs / 1000f
+                              )
+                              : event.latencyMs + " ms",
+                          9,
+                          Color.rgb(70,80,90),
+                          true
+                      );
+                      latency.setGravity(Gravity.START);
+                      latency.setPadding(
+                          dp(7),
+                          dp(3),
+                          dp(7),
+                          dp(3)
+                      );
+                      latency.setBackground(
+                          bg(Color.rgb(235,238,241), 12)
+                      );
+                      LinearLayout.LayoutParams latencyLp = lp(-2, -2);
+                      latencyLp.topMargin = dp(4);
+                      labels.addView(latency, latencyLp);
+                  }
+
+                  row.addView(
+                      labels,
+                      new LinearLayout.LayoutParams(0, -2, 1)
+                  );
+                  return row;
+              }
+
+              private String blackBoxDiagnosticText() {
+                  StringBuilder out = new StringBuilder();
+                  out.append("AireSmart v1.0.25 · Caja Negra\n");
+                  out.append("Estado MQTT: ")
+                      .append(mqtt != null && mqtt.isConnected()
+                          ? "CONECTADO"
+                          : "DESCONECTADO")
+                      .append("\n\n");
+
+                  ArrayList<BlackBoxEvent> snapshot;
+                  synchronized (blackBoxLock) {
+                      snapshot = new ArrayList<>(blackBoxEvents);
+                  }
+
+                  SimpleDateFormat fmt = new SimpleDateFormat(
+                      "yyyy-MM-dd HH:mm:ss",
+                      Locale.getDefault()
+                  );
+
+                  for (int i = snapshot.size() - 1; i >= 0; i--) {
+                      BlackBoxEvent event = snapshot.get(i);
+                      out.append(fmt.format(new Date(event.time)))
+                          .append(" | ")
+                          .append(event.category)
+                          .append(" | ")
+                          .append(event.level.toUpperCase(Locale.ROOT))
+                          .append(" | ")
+                          .append(event.title);
+
+                      if (event.detail != null && !event.detail.isEmpty()) {
+                          out.append(" | ").append(event.detail);
+                      }
+                      if (event.latencyMs >= 0L) {
+                          out.append(" | ").append(event.latencyMs).append(" ms");
+                      }
+                      out.append("\n");
+                  }
+
+                  return out.toString();
+              }
+
+              private void copyBlackBoxDiagnostic() {
+                  ClipboardManager clipboard =
+                      (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                  if (clipboard == null) {
+                      toast("No se pudo abrir el portapapeles");
+                      return;
+                  }
+
+                  clipboard.setPrimaryClip(
+                      ClipData.newPlainText(
+                          "AireSmart Caja Negra",
+                          blackBoxDiagnosticText()
+                      )
+                  );
+                  toast("Diagnóstico copiado");
+              }
+
+              private void shareBlackBoxDiagnostic() {
+                  Intent share = new Intent(Intent.ACTION_SEND);
+                  share.setType("text/plain");
+                  share.putExtra(
+                      Intent.EXTRA_SUBJECT,
+                      "AireSmart · Caja Negra"
+                  );
+                  share.putExtra(
+                      Intent.EXTRA_TEXT,
+                      blackBoxDiagnosticText()
+                  );
+                  startActivity(
+                      Intent.createChooser(
+                          share,
+                          "Compartir diagnóstico"
+                      )
+                  );
+              }
+
+              private void confirmClearBlackBox() {
+                  new AlertDialog.Builder(this)
+                      .setTitle("Borrar historial")
+                      .setMessage(
+                          "Se eliminarán los eventos guardados de la Caja Negra de este teléfono."
+                      )
+                      .setNegativeButton("CANCELAR", null)
+                      .setPositiveButton("BORRAR", (d, w) -> {
+                          synchronized (blackBoxLock) {
+                              blackBoxEvents.clear();
+                              persistBlackBoxEventsLocked();
+                          }
+                          refreshBlackBoxUi();
+                          toast("Historial borrado");
+                      })
+                      .show();
+              }
+
               private void animateEntrance(LinearLayout root) {
                   root.post(() -> {
                       int count = root.getChildCount();
@@ -2893,8 +3894,6 @@ jobs:
 
               @Override
               protected void onDestroy() {
-                  stopSmartLink();
-                  localIo.shutdownNow();
                   super.onDestroy();
                   io.execute(() -> {
                       try {
@@ -2904,6 +3903,132 @@ jobs:
                           }
                       } catch (Exception ignored) {}
                   });
+              }
+
+              public static class SignalDotView extends View {
+                  private final Paint corePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint haloPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final String mode;
+                  private ValueAnimator animator;
+                  private float phase = 0f;
+
+                  public SignalDotView(Context context, String mode) {
+                      super(context);
+                      this.mode = mode == null ? "info" : mode;
+                      setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+                      startAnimationLoop();
+                  }
+
+                  private void startAnimationLoop() {
+                      animator = ValueAnimator.ofFloat(0f, 1f);
+                      if ("bad".equals(mode) || "error".equals(mode)) {
+                          animator.setDuration(1350L);
+                      } else if ("warn".equals(mode)) {
+                          animator.setDuration(1200L);
+                      } else if ("ok".equals(mode)) {
+                          animator.setDuration(1800L);
+                      } else {
+                          animator.setDuration(1750L);
+                      }
+                      animator.setRepeatCount(ValueAnimator.INFINITE);
+                      animator.setInterpolator(new LinearInterpolator());
+                      animator.addUpdateListener(a -> {
+                          phase = (float) a.getAnimatedValue();
+                          invalidate();
+                      });
+                      animator.start();
+                  }
+
+                  private int signalColor() {
+                      if ("ok".equals(mode)) return Color.rgb(56,216,137);
+                      if ("warn".equals(mode)) return Color.rgb(255,157,56);
+                      if ("bad".equals(mode) || "error".equals(mode)) {
+                          return Color.rgb(255,93,93);
+                      }
+                      return Color.rgb(74,168,255);
+                  }
+
+                  @Override
+                  protected void onDraw(Canvas canvas) {
+                      super.onDraw(canvas);
+
+                      float cx = getWidth() / 2f;
+                      float cy = getHeight() / 2f;
+                      float base = Math.min(getWidth(), getHeight()) * 0.16f;
+                      int color = signalColor();
+
+                      corePaint.setStyle(Paint.Style.FILL);
+                      corePaint.setColor(color);
+                      corePaint.setShadowLayer(base * 1.45f, 0f, 0f, color);
+
+                      haloPaint.setStyle(Paint.Style.STROKE);
+                      haloPaint.setStrokeWidth(Math.max(1.3f, base * 0.28f));
+                      haloPaint.setColor(color);
+                      haloPaint.clearShadowLayer();
+
+                      if ("info".equals(mode)) {
+                          float p1 = phase;
+                          float p2 = (phase + 0.5f) % 1f;
+                          drawSignalRing(canvas, cx, cy, base, p1, 2.0f);
+                          drawSignalRing(canvas, cx, cy, base, p2, 2.0f);
+                          canvas.drawCircle(cx, cy, base, corePaint);
+                          return;
+                      }
+
+                      if ("bad".equals(mode) || "error".equals(mode)) {
+                          double b1 = Math.exp(-Math.pow((phase - 0.18f) / 0.075f, 2));
+                          double b2 = Math.exp(-Math.pow((phase - 0.46f) / 0.085f, 2));
+                          float beat = (float) Math.max(b1, b2);
+                          float scale = 0.96f + 0.34f * beat;
+                          drawSignalRing(canvas, cx, cy, base, phase, 1.95f);
+                          canvas.drawCircle(cx, cy, base * scale, corePaint);
+                          return;
+                      }
+
+                      if ("warn".equals(mode)) {
+                          float pulse = (float) Math.abs(Math.sin(Math.PI * phase));
+                          drawSignalRing(canvas, cx, cy, base, phase, 1.75f);
+                          canvas.drawCircle(
+                              cx,
+                              cy,
+                              base * (0.94f + 0.26f * pulse),
+                              corePaint
+                          );
+                          return;
+                      }
+
+                      float breath = (float) Math.sin(Math.PI * phase);
+                      drawSignalRing(canvas, cx, cy, base, phase, 1.85f);
+                      canvas.drawCircle(
+                          cx,
+                          cy,
+                          base * (0.96f + 0.13f * breath),
+                          corePaint
+                      );
+                  }
+
+                  private void drawSignalRing(
+                      Canvas canvas,
+                      float cx,
+                      float cy,
+                      float base,
+                      float progress,
+                      float maxScale
+                  ) {
+                      int alpha = Math.max(
+                          0,
+                          Math.min(150, (int) (145f * (1f - progress)))
+                      );
+                      haloPaint.setAlpha(alpha);
+                      float radius = base * (1f + progress * maxScale);
+                      canvas.drawCircle(cx, cy, radius, haloPaint);
+                  }
+
+                  @Override
+                  protected void onDetachedFromWindow() {
+                      super.onDetachedFromWindow();
+                      if (animator != null) animator.cancel();
+                  }
               }
 
               public static class PowerRingView extends View {
@@ -3230,7 +4355,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.22_SmartLink_P1.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.25_Caja_Negra.apk
 
       - name: Verify APK signature
         env:
@@ -3240,7 +4365,53 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.22_SmartLink_P1.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.25_Caja_Negra.apk
+
+      - name: Generate in-app update manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK="AireSmart_Remote_v1.0.25_Caja_Negra.apk"
+          SHA256="$(sha256sum "$APK" | awk '{print $1}')"
+
+          cat > latest.json <<EOF
+          {
+            "versionCode": 26,
+            "versionName": "1.0.25",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.25/${APK}",
+            "sha256": "${SHA256}",
+            "notes": "Caja Negra: diagnóstico local con eventos MQTT, órdenes, ACK, latencia, reconexiones y errores."
+          }
+          EOF
+
+      - name: Publish permanent AireSmart release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          TAG="v1.0.25"
+          APK="AireSmart_Remote_v1.0.25_Caja_Negra.apk"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload \
+              "$TAG" \
+              "$APK" \
+              latest.json \
+              --clobber
+          else
+            gh release create \
+              "$TAG" \
+              "$APK" \
+              latest.json \
+              --title "AireSmart Remote v1.0.25 · Caja Negra" \
+              --notes "Añade Caja Negra local con historial de órdenes, MQTT, ACK, latencia, reconexiones y errores, conservando el control de v1.0.24."
+          fi
+
+          # Fuerza esta release como la Latest Release de GitHub.
+          gh release edit "$TAG" --latest
 
       - name: Remove decrypted key
         if: always()
@@ -3250,5 +4421,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.22-SmartLink-P1
-          path: AireSmart_Remote_v1.0.22_SmartLink_P1.apk
+          name: AireSmart-Remote-v1.0.25-Caja-Negra
+          path: |
+            AireSmart_Remote_v1.0.25_Caja_Negra.apk
+            latest.json
