@@ -78,6 +78,193 @@ jobs:
             -o app/src/main/assets/nature-sprite.png
           test -s app/src/main/assets/nature-sprite.png
 
+
+          # HTML exacto aprobado en la demo: mismo MASK1, mismo fondo y mismas medidas.
+          cat > app/src/main/assets/mask1_enfriar.html <<'EOF'
+          <!doctype html>
+          <html lang="es">
+          <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+          <style>
+          *{
+            box-sizing:border-box;
+            -webkit-tap-highlight-color:transparent;
+          }
+
+          html,body{
+            margin:0;
+            width:100%;
+            height:100%;
+            overflow:hidden;
+            background:transparent;
+            font-family:Arial,Helvetica,sans-serif;
+          }
+
+          /* EXACTAMENTE la variante aprobada del demo */
+          .mask1-container{
+            position:relative;
+            width:100%;
+            height:100%;
+            overflow:hidden;
+            border:1px solid #d2dae5;
+            font-family:Arial,Helvetica,sans-serif;
+            font-weight:300;
+            transition:.5s;
+            letter-spacing:1px;
+            border-radius:8px;
+            background:#0d7df6;
+          }
+
+          .mask1-container .mas{
+            position:absolute;
+            color:#fff;
+            text-align:center;
+            width:101%;
+            font-family:Arial,Helvetica,sans-serif;
+            font-weight:700;
+            font-size:17px;
+            margin-top:16px;
+            overflow:hidden;
+            pointer-events:none;
+          }
+
+          .mask1-container button{
+            width:101%;
+            height:100%;
+            font-family:Arial,Helvetica,sans-serif;
+            font-size:17px;
+            letter-spacing:1px;
+            font-weight:700;
+
+            /* En vez del negro: el fondo aprobado */
+            background:#f5f6f8;
+            color:#5c7088;
+
+            -webkit-mask:url('nature-sprite.png');
+            mask:url('nature-sprite.png');
+            -webkit-mask-size:2300% 100%;
+            mask-size:2300% 100%;
+
+            border:none;
+            cursor:pointer;
+
+            -webkit-animation:ani2 .7s steps(22) forwards;
+            animation:ani2 .7s steps(22) forwards;
+          }
+
+          .mask1-container.active button{
+            -webkit-animation:ani .7s steps(22) forwards;
+            animation:ani .7s steps(22) forwards;
+          }
+
+          @-webkit-keyframes ani{
+            from{
+              -webkit-mask-position:0 0;
+              mask-position:0 0;
+            }
+            to{
+              -webkit-mask-position:100% 0;
+              mask-position:100% 0;
+            }
+          }
+
+          @keyframes ani{
+            from{
+              -webkit-mask-position:0 0;
+              mask-position:0 0;
+            }
+            to{
+              -webkit-mask-position:100% 0;
+              mask-position:100% 0;
+            }
+          }
+
+          @-webkit-keyframes ani2{
+            from{
+              -webkit-mask-position:100% 0;
+              mask-position:100% 0;
+            }
+            to{
+              -webkit-mask-position:0 0;
+              mask-position:0 0;
+            }
+          }
+
+          @keyframes ani2{
+            from{
+              -webkit-mask-position:100% 0;
+              mask-position:100% 0;
+            }
+            to{
+              -webkit-mask-position:0 0;
+              mask-position:0 0;
+            }
+          }
+          </style>
+          </head>
+          <body>
+            <div class="mask1-container" id="mask1">
+              <span class="mas">ENFRIAR</span>
+              <button id="maskLayer" type="button">ENFRIAR</button>
+            </div>
+
+          <script>
+          const container = document.getElementById('mask1');
+          const button = document.getElementById('maskLayer');
+          let visualActive = false;
+
+          function restartAnimation(active){
+            button.style.webkitAnimation = 'none';
+            button.style.animation = 'none';
+            void button.offsetWidth;
+
+            container.classList.toggle('active', !!active);
+
+            button.style.webkitAnimation = '';
+            button.style.animation = '';
+          }
+
+          window.setMaskActive = function(active, animate){
+            visualActive = !!active;
+
+            if(!animate){
+              container.classList.toggle('active', visualActive);
+
+              button.style.webkitAnimation = 'none';
+              button.style.animation = 'none';
+              button.style.webkitMaskPosition = visualActive ? '100% 0' : '0 0';
+              button.style.maskPosition = visualActive ? '100% 0' : '0 0';
+              return;
+            }
+
+            button.style.webkitMaskPosition = '';
+            button.style.maskPosition = '';
+            restartAnimation(visualActive);
+          };
+
+          container.addEventListener('click', function(){
+            /*
+             * Igual que el demo aprobado:
+             * si estaba gris, toca y ejecuta MASK1 hacia azul.
+             * El estado real del ESP32 después confirma o revierte.
+             */
+            if(!visualActive){
+              visualActive = true;
+              button.style.webkitMaskPosition = '';
+              button.style.maskPosition = '';
+              restartAnimation(true);
+            }
+
+            if(window.AndroidMask && AndroidMask.onTap){
+              AndroidMask.onTap();
+            }
+          });
+          </script>
+          </body>
+          </html>
+          EOF
+
           cat > settings.gradle <<'EOF'
           pluginManagement {
               repositories { google(); mavenCentral(); gradlePluginPortal() }
@@ -113,8 +300,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 27
-                  versionName "1.0.26"
+                  versionCode 28
+                  versionName "1.0.27"
               }
 
               signingConfigs {
@@ -1141,7 +1328,7 @@ jobs:
                   up.topMargin = dp(14);
                   root.addView(updateCard, up);
 
-                  TextView version = text("AireSmart Remote v1.0.26", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.27", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -2925,9 +3112,9 @@ jobs:
                * - No altera MQTT, ACK, estados ni tiempos; solo dibuja la apariencia.
                */
               /**
-               * MASK1 REAL:
-               * usa el mismo nature-sprite.png y la misma animación
-               * CSS mask-position de 0.7 s / steps(22) del demo.
+               * MASK1 EXACTO APROBADO:
+               * usa el mismo HTML/CSS del segundo botón del demo aprobado,
+               * con nature-sprite.png, 0.7 s y steps(22).
                *
                * Se ejecuta dentro de un WebView del tamaño exacto del botón,
                * mientras la lógica MQTT sigue siendo 100 % nativa.
@@ -2970,224 +3157,8 @@ jobs:
                           }
                       });
 
-                      String html = """
-                          <!doctype html>
-                          <html>
-                          <head>
-                            <meta charset="utf-8">
-                            <meta name="viewport"
-                                  content="width=device-width,initial-scale=1,
-                                           maximum-scale=1,user-scalable=no">
-                            <style>
-                              * {
-                                margin:0;
-                                padding:0;
-                                box-sizing:border-box;
-                                -webkit-tap-highlight-color:transparent;
-                              }
-
-                              html, body {
-                                width:100%;
-                                height:100%;
-                                overflow:hidden;
-                                background:transparent;
-                              }
-
-                              .mask1 {
-                                position:relative;
-                                width:100%;
-                                height:100%;
-                                overflow:hidden;
-                                border-radius:14px;
-                                background:#0d7df6;
-                                font-family:Arial,Helvetica,sans-serif;
-                              }
-
-                              .mas {
-                                position:absolute;
-                                inset:0;
-                                display:flex;
-                                align-items:center;
-                                justify-content:center;
-                                color:#ffffff;
-                                font-size:14px;
-                                font-weight:700;
-                                pointer-events:none;
-                              }
-
-                              #maskLayer {
-                                position:absolute;
-                                left:0;
-                                top:0;
-                                width:101%;
-                                height:100%;
-                                border:0;
-                                outline:0;
-                                cursor:pointer;
-
-                                /* El negro del ejemplo se cambia SOLO
-                                   por el fondo aprobado de AireSmart. */
-                                background:#f5f6f8;
-                                color:#5c7088;
-                                font-family:Arial,Helvetica,sans-serif;
-                                font-size:14px;
-                                font-weight:700;
-
-                                -webkit-mask-image:
-                                  url('nature-sprite.png');
-                                mask-image:
-                                  url('nature-sprite.png');
-
-                                -webkit-mask-size:2300% 100%;
-                                mask-size:2300% 100%;
-
-                                -webkit-mask-position:0 0;
-                                mask-position:0 0;
-                              }
-
-                              #maskLayer.go-out {
-                                -webkit-animation:
-                                  ani .7s steps(22) forwards;
-                                animation:
-                                  ani .7s steps(22) forwards;
-                              }
-
-                              #maskLayer.go-in {
-                                -webkit-animation:
-                                  ani2 .7s steps(22) forwards;
-                                animation:
-                                  ani2 .7s steps(22) forwards;
-                              }
-
-                              @-webkit-keyframes ani {
-                                from {
-                                  -webkit-mask-position:0 0;
-                                  mask-position:0 0;
-                                }
-                                to {
-                                  -webkit-mask-position:100% 0;
-                                  mask-position:100% 0;
-                                }
-                              }
-
-                              @keyframes ani {
-                                from {
-                                  -webkit-mask-position:0 0;
-                                  mask-position:0 0;
-                                }
-                                to {
-                                  -webkit-mask-position:100% 0;
-                                  mask-position:100% 0;
-                                }
-                              }
-
-                              @-webkit-keyframes ani2 {
-                                from {
-                                  -webkit-mask-position:100% 0;
-                                  mask-position:100% 0;
-                                }
-                                to {
-                                  -webkit-mask-position:0 0;
-                                  mask-position:0 0;
-                                }
-                              }
-
-                              @keyframes ani2 {
-                                from {
-                                  -webkit-mask-position:100% 0;
-                                  mask-position:100% 0;
-                                }
-                                to {
-                                  -webkit-mask-position:0 0;
-                                  mask-position:0 0;
-                                }
-                              }
-                            </style>
-                          </head>
-                          <body>
-                            <div class="mask1">
-                              <span class="mas">ENFRIAR</span>
-                              <button id="maskLayer"
-                                      type="button">ENFRIAR</button>
-                            </div>
-
-                            <script>
-                              const layer =
-                                document.getElementById('maskLayer');
-
-                              let visualActive = false;
-
-                              function restart(cls) {
-                                layer.classList.remove(
-                                  'go-out',
-                                  'go-in'
-                                );
-                                void layer.offsetWidth;
-                                layer.classList.add(cls);
-                              }
-
-                              window.setMaskActive =
-                                function(active, animate) {
-                                  visualActive = !!active;
-
-                                  if (!animate) {
-                                    layer.classList.remove(
-                                      'go-out',
-                                      'go-in'
-                                    );
-
-                                    layer.style.webkitMaskPosition =
-                                      visualActive
-                                        ? '100% 0'
-                                        : '0 0';
-
-                                    layer.style.maskPosition =
-                                      visualActive
-                                        ? '100% 0'
-                                        : '0 0';
-
-                                    return;
-                                  }
-
-                                  layer.style.webkitMaskPosition = '';
-                                  layer.style.maskPosition = '';
-
-                                  restart(
-                                    visualActive
-                                      ? 'go-out'
-                                      : 'go-in'
-                                  );
-                                };
-
-                              layer.addEventListener(
-                                'click',
-                                function() {
-                                  /* Reproduce el toque de MASK1
-                                     inmediatamente. El estado real del
-                                     ESP32 después confirma/revierte. */
-                                  layer.style.webkitMaskPosition = '';
-                                  layer.style.maskPosition = '';
-                                  restart('go-out');
-
-                                  if (
-                                    window.AndroidMask &&
-                                    AndroidMask.onTap
-                                  ) {
-                                    AndroidMask.onTap();
-                                  }
-                                }
-                              );
-                            </script>
-                          </body>
-                          </html>
-                          """;
-
-                      loadDataWithBaseURL(
-                          "file:///android_asset/",
-                          html,
-                          "text/html",
-                          "UTF-8",
-                          null
+                      loadUrl(
+                          "file:///android_asset/mask1_enfriar.html"
                       );
                   }
 
@@ -3563,7 +3534,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.26_MASK1_REAL_Enfriar.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.27_MASK1_EXACTO_Enfriar.apk
 
       - name: Verify APK signature
         env:
@@ -3573,23 +3544,23 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.26_MASK1_REAL_Enfriar.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.27_MASK1_EXACTO_Enfriar.apk
 
       - name: Generate in-app update manifest
         shell: bash
         run: |
           set -euo pipefail
 
-          APK="AireSmart_Remote_v1.0.26_MASK1_REAL_Enfriar.apk"
+          APK="AireSmart_Remote_v1.0.27_MASK1_EXACTO_Enfriar.apk"
           SHA256="$(sha256sum "$APK" | awk '{print $1}')"
 
           cat > latest.json <<EOF
           {
-            "versionCode": 27,
-            "versionName": "1.0.26",
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.26/${APK}",
+            "versionCode": 28,
+            "versionName": "1.0.27",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.27/${APK}",
             "sha256": "${SHA256}",
-            "notes": "MASK1 real (nature-sprite, 22 pasos) agregado únicamente al botón ENFRIAR."
+            "notes": "MASK1 exacto aprobado en demo aplicado únicamente al botón ENFRIAR."
           }
           EOF
 
@@ -3600,8 +3571,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="v1.0.26"
-          APK="AireSmart_Remote_v1.0.26_MASK1_REAL_Enfriar.apk"
+          TAG="v1.0.27"
+          APK="AireSmart_Remote_v1.0.27_MASK1_EXACTO_Enfriar.apk"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload \
@@ -3614,7 +3585,7 @@ jobs:
               "$TAG" \
               "$APK" \
               latest.json \
-              --title "AireSmart Remote v1.0.26" \
+              --title "AireSmart Remote v1.0.27" \
               --notes "Mismo AireSmart Remote, con efecto Flush visual únicamente en ENFRIAR."
           fi
 
@@ -3626,7 +3597,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.26-MASK1-REAL-Enfriar
+          name: AireSmart-Remote-v1.0.27-MASK1-EXACTO-Enfriar
           path: |
-            AireSmart_Remote_v1.0.26_MASK1_REAL_Enfriar.apk
+            AireSmart_Remote_v1.0.27_MASK1_EXACTO_Enfriar.apk
             latest.json
