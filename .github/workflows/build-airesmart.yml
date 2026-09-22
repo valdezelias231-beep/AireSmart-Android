@@ -69,6 +69,14 @@ jobs:
           mkdir -p app/src/main/java/com/airesmart/remote
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/assets
+
+          # Sprite ORIGINAL de MASK1. Se empaqueta dentro del APK para que
+          # el efecto no dependa de Internet en tiempo de ejecución.
+          curl -fL --retry 3 --retry-delay 2 \
+            "https://raw.githubusercontent.com/robin-dela/css-mask-animation/master/img/nature-sprite.png" \
+            -o app/src/main/assets/nature-sprite.png
+          test -s app/src/main/assets/nature-sprite.png
 
           cat > settings.gradle <<'EOF'
           pluginManagement {
@@ -105,8 +113,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 26
-                  versionName "1.0.25"
+                  versionCode 27
+                  versionName "1.0.26"
               }
 
               signingConfigs {
@@ -230,6 +238,10 @@ jobs:
           import android.widget.ScrollView;
           import android.widget.TextView;
           import android.widget.Toast;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
 
           import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
           import org.eclipse.paho.client.mqttv3.MqttCallbackExtended;
@@ -264,7 +276,7 @@ jobs:
               private SharedPreferences prefs;
 
               private TextView cloudStatus, detailState, systemState, heroSub, ackState;
-              private Mask1CoolButton coolButton;
+              private Mask1CoolWebView coolButton;
               private Button fanButton, lowButton, highButton;
               private PowerRingView powerRing;
 
@@ -1032,10 +1044,10 @@ jobs:
                   LinearLayout modes = new LinearLayout(this);
                   modes.setOrientation(LinearLayout.HORIZONTAL);
 
-                  coolButton = new Mask1CoolButton(this);
+                  coolButton = new Mask1CoolWebView(this);
+                  coolButton.setNativeClick(() -> sendMode("cool"));
                   fanButton = button("SOLO AIRE", Color.rgb(32,183,201));
 
-                  coolButton.setOnClickListener(v -> sendMode("cool"));
                   fanButton.setOnClickListener(v -> sendMode("fan"));
                   addPressEffect(coolButton);
                   addPressEffect(fanButton);
@@ -1129,7 +1141,7 @@ jobs:
                   up.topMargin = dp(14);
                   root.addView(updateCard, up);
 
-                  TextView version = text("AireSmart Remote v1.0.25", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.26", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -2658,7 +2670,7 @@ jobs:
                       fanButton.setTextColor(Color.WHITE);
                       coolButton.setMaskActive(false);
                   } else if (systemActive) {
-                      // Solo ENFRIAR usa MASK1 por ahora.
+                      // Solo ENFRIAR usa el MASK1 REAL del demo CSS.
                       // La lógica MQTT/ACK no cambia; esto es únicamente visual.
                       coolButton.setMaskActive(true);
                       fanButton.setBackground(bg(Color.rgb(220,226,233), 14));
@@ -2913,391 +2925,316 @@ jobs:
                * - No altera MQTT, ACK, estados ni tiempos; solo dibuja la apariencia.
                */
               /**
-               * MASK1 para ENFRIAR.
+               * MASK1 REAL:
+               * usa el mismo nature-sprite.png y la misma animación
+               * CSS mask-position de 0.7 s / steps(22) del demo.
                *
-               * Replica en Android nativo la sensación del ejemplo CSS:
-               * - 0.7 s
-               * - 22 pasos discretos
-               * - transición orgánica tipo "nature mask"
-               * - fondo claro cuando está inactivo
-               * - azul AireSmart cuando queda seleccionado
-               *
-               * No toca MQTT/ACK/estados; únicamente dibuja el botón.
+               * Se ejecuta dentro de un WebView del tamaño exacto del botón,
+               * mientras la lógica MQTT sigue siendo 100 % nativa.
                */
-              public static class Mask1CoolButton extends Button {
-                  private static final int MASK_STEPS = 22;
+              public static class Mask1CoolWebView extends WebView {
+                  private Runnable nativeClick;
+                  private boolean pageReady = false;
+                  private boolean desiredActive = false;
 
-                  private final Paint basePaint =
-                      new Paint(Paint.ANTI_ALIAS_FLAG);
-                  private final Paint overlayPaint =
-                      new Paint(Paint.ANTI_ALIAS_FLAG);
-                  private final Paint labelPaint =
-                      new Paint(Paint.ANTI_ALIAS_FLAG);
-                  private final Paint speckPaint =
-                      new Paint(Paint.ANTI_ALIAS_FLAG);
-
-                  private final RectF bounds = new RectF();
-                  private final Path overlayPath = new Path();
-
-                  private final int idleColor =
-                      Color.rgb(220, 226, 233);
-                  private final int idleText =
-                      Color.rgb(92, 112, 136);
-                  private final int activeBlue =
-                      Color.rgb(13, 125, 246);
-
-                  private boolean maskActive = false;
-                  private int maskFrame = 0;
-                  private ValueAnimator maskAnimator;
-
-                  public Mask1CoolButton(Context context) {
+                  public Mask1CoolWebView(Context context) {
                       super(context);
 
-                      setAllCaps(false);
-                      setText("");
                       setBackgroundColor(Color.TRANSPARENT);
-                      setPadding(0, 0, 0, 0);
+                      setVerticalScrollBarEnabled(false);
+                      setHorizontalScrollBarEnabled(false);
+                      setOverScrollMode(View.OVER_SCROLL_NEVER);
 
-                      labelPaint.setTextAlign(Paint.Align.CENTER);
-                      labelPaint.setTypeface(Typeface.DEFAULT_BOLD);
-                      labelPaint.setTextSize(
-                          14f *
-                          getResources()
-                              .getDisplayMetrics()
-                              .scaledDensity
+                      WebSettings settings = getSettings();
+                      settings.setJavaScriptEnabled(true);
+                      settings.setAllowFileAccess(true);
+                      settings.setAllowContentAccess(false);
+                      settings.setDomStorageEnabled(false);
+                      settings.setSupportZoom(false);
+                      settings.setBuiltInZoomControls(false);
+                      settings.setDisplayZoomControls(false);
+
+                      addJavascriptInterface(
+                          new MaskBridge(),
+                          "AndroidMask"
                       );
+
+                      setWebViewClient(new WebViewClient() {
+                          @Override
+                          public void onPageFinished(
+                              WebView view,
+                              String url
+                          ) {
+                              pageReady = true;
+                              applyDesiredState(false);
+                          }
+                      });
+
+                      String html = """
+                          <!doctype html>
+                          <html>
+                          <head>
+                            <meta charset="utf-8">
+                            <meta name="viewport"
+                                  content="width=device-width,initial-scale=1,
+                                           maximum-scale=1,user-scalable=no">
+                            <style>
+                              * {
+                                margin:0;
+                                padding:0;
+                                box-sizing:border-box;
+                                -webkit-tap-highlight-color:transparent;
+                              }
+
+                              html, body {
+                                width:100%;
+                                height:100%;
+                                overflow:hidden;
+                                background:transparent;
+                              }
+
+                              .mask1 {
+                                position:relative;
+                                width:100%;
+                                height:100%;
+                                overflow:hidden;
+                                border-radius:14px;
+                                background:#0d7df6;
+                                font-family:Arial,Helvetica,sans-serif;
+                              }
+
+                              .mas {
+                                position:absolute;
+                                inset:0;
+                                display:flex;
+                                align-items:center;
+                                justify-content:center;
+                                color:#ffffff;
+                                font-size:14px;
+                                font-weight:700;
+                                pointer-events:none;
+                              }
+
+                              #maskLayer {
+                                position:absolute;
+                                left:0;
+                                top:0;
+                                width:101%;
+                                height:100%;
+                                border:0;
+                                outline:0;
+                                cursor:pointer;
+
+                                /* El negro del ejemplo se cambia SOLO
+                                   por el fondo aprobado de AireSmart. */
+                                background:#f5f6f8;
+                                color:#5c7088;
+                                font-family:Arial,Helvetica,sans-serif;
+                                font-size:14px;
+                                font-weight:700;
+
+                                -webkit-mask-image:
+                                  url('nature-sprite.png');
+                                mask-image:
+                                  url('nature-sprite.png');
+
+                                -webkit-mask-size:2300% 100%;
+                                mask-size:2300% 100%;
+
+                                -webkit-mask-position:0 0;
+                                mask-position:0 0;
+                              }
+
+                              #maskLayer.go-out {
+                                -webkit-animation:
+                                  ani .7s steps(22) forwards;
+                                animation:
+                                  ani .7s steps(22) forwards;
+                              }
+
+                              #maskLayer.go-in {
+                                -webkit-animation:
+                                  ani2 .7s steps(22) forwards;
+                                animation:
+                                  ani2 .7s steps(22) forwards;
+                              }
+
+                              @-webkit-keyframes ani {
+                                from {
+                                  -webkit-mask-position:0 0;
+                                  mask-position:0 0;
+                                }
+                                to {
+                                  -webkit-mask-position:100% 0;
+                                  mask-position:100% 0;
+                                }
+                              }
+
+                              @keyframes ani {
+                                from {
+                                  -webkit-mask-position:0 0;
+                                  mask-position:0 0;
+                                }
+                                to {
+                                  -webkit-mask-position:100% 0;
+                                  mask-position:100% 0;
+                                }
+                              }
+
+                              @-webkit-keyframes ani2 {
+                                from {
+                                  -webkit-mask-position:100% 0;
+                                  mask-position:100% 0;
+                                }
+                                to {
+                                  -webkit-mask-position:0 0;
+                                  mask-position:0 0;
+                                }
+                              }
+
+                              @keyframes ani2 {
+                                from {
+                                  -webkit-mask-position:100% 0;
+                                  mask-position:100% 0;
+                                }
+                                to {
+                                  -webkit-mask-position:0 0;
+                                  mask-position:0 0;
+                                }
+                              }
+                            </style>
+                          </head>
+                          <body>
+                            <div class="mask1">
+                              <span class="mas">ENFRIAR</span>
+                              <button id="maskLayer"
+                                      type="button">ENFRIAR</button>
+                            </div>
+
+                            <script>
+                              const layer =
+                                document.getElementById('maskLayer');
+
+                              let visualActive = false;
+
+                              function restart(cls) {
+                                layer.classList.remove(
+                                  'go-out',
+                                  'go-in'
+                                );
+                                void layer.offsetWidth;
+                                layer.classList.add(cls);
+                              }
+
+                              window.setMaskActive =
+                                function(active, animate) {
+                                  visualActive = !!active;
+
+                                  if (!animate) {
+                                    layer.classList.remove(
+                                      'go-out',
+                                      'go-in'
+                                    );
+
+                                    layer.style.webkitMaskPosition =
+                                      visualActive
+                                        ? '100% 0'
+                                        : '0 0';
+
+                                    layer.style.maskPosition =
+                                      visualActive
+                                        ? '100% 0'
+                                        : '0 0';
+
+                                    return;
+                                  }
+
+                                  layer.style.webkitMaskPosition = '';
+                                  layer.style.maskPosition = '';
+
+                                  restart(
+                                    visualActive
+                                      ? 'go-out'
+                                      : 'go-in'
+                                  );
+                                };
+
+                              layer.addEventListener(
+                                'click',
+                                function() {
+                                  /* Reproduce el toque de MASK1
+                                     inmediatamente. El estado real del
+                                     ESP32 después confirma/revierte. */
+                                  layer.style.webkitMaskPosition = '';
+                                  layer.style.maskPosition = '';
+                                  restart('go-out');
+
+                                  if (
+                                    window.AndroidMask &&
+                                    AndroidMask.onTap
+                                  ) {
+                                    AndroidMask.onTap();
+                                  }
+                                }
+                              );
+                            </script>
+                          </body>
+                          </html>
+                          """;
+
+                      loadDataWithBaseURL(
+                          "file:///android_asset/",
+                          html,
+                          "text/html",
+                          "UTF-8",
+                          null
+                      );
+                  }
+
+                  public void setNativeClick(Runnable click) {
+                      nativeClick = click;
                   }
 
                   public void setMaskActive(boolean active) {
-                      int target = active ? MASK_STEPS : 0;
-
-                      if (
-                          maskActive == active &&
-                          maskFrame == target
-                      ) {
+                      if (desiredActive == active) {
                           return;
                       }
 
-                      maskActive = active;
-
-                      if (maskAnimator != null) {
-                          maskAnimator.cancel();
-                      }
-
-                      int distance = Math.abs(target - maskFrame);
-                      long duration = Math.max(
-                          90L,
-                          Math.round(
-                              700f *
-                              (
-                                  distance /
-                                  (float) MASK_STEPS
-                              )
-                          )
-                      );
-
-                      maskAnimator = ValueAnimator.ofInt(
-                          maskFrame,
-                          target
-                      );
-                      maskAnimator.setDuration(duration);
-                      maskAnimator.setInterpolator(
-                          new LinearInterpolator()
-                      );
-                      maskAnimator.addUpdateListener(animator -> {
-                          maskFrame =
-                              (Integer) animator.getAnimatedValue();
-                          invalidate();
-                      });
-                      maskAnimator.start();
+                      desiredActive = active;
+                      applyDesiredState(true);
                   }
 
-                  @Override
-                  protected void onDraw(Canvas canvas) {
-                      float w = getWidth();
-                      float h = getHeight();
-
-                      if (w <= 0f || h <= 0f) {
+                  private void applyDesiredState(
+                      boolean animate
+                  ) {
+                      if (!pageReady) {
                           return;
                       }
 
-                      float radius = dpLocal(14f);
-                      bounds.set(0f, 0f, w, h);
+                      String js =
+                          "window.setMaskActive(" +
+                          (desiredActive ? "true" : "false") +
+                          "," +
+                          (animate ? "true" : "false") +
+                          ");";
 
-                      // El color seleccionado vive debajo de la máscara.
-                      basePaint.setStyle(Paint.Style.FILL);
-                      basePaint.setColor(activeBlue);
-                      canvas.drawRoundRect(
-                          bounds,
-                          radius,
-                          radius,
-                          basePaint
-                      );
-
-                      float progress =
-                          maskFrame /
-                          (float) MASK_STEPS;
-
-                      // En el frame 0 el botón queda 100 % limpio/gris.
-                      if (maskFrame <= 0) {
-                          overlayPaint.setStyle(Paint.Style.FILL);
-                          overlayPaint.setColor(idleColor);
-                          canvas.drawRoundRect(
-                              bounds,
-                              radius,
-                              radius,
-                              overlayPaint
-                          );
-
-                      } else if (maskFrame < MASK_STEPS) {
-                          int save = canvas.save();
-
-                          Path clip = new Path();
-                          clip.addRoundRect(
-                              bounds,
-                              radius,
-                              radius,
-                              Path.Direction.CW
-                          );
-                          canvas.clipPath(clip);
-
-                          drawNatureMaskOverlay(
-                              canvas,
-                              w,
-                              h,
-                              progress
-                          );
-
-                          canvas.restoreToCount(save);
-                      }
-
-                      // Texto cambia suavemente de gris a blanco.
-                      labelPaint.setColor(
-                          blendColor(
-                              idleText,
-                              Color.WHITE,
-                              progress
-                          )
-                      );
-
-                      Paint.FontMetrics fm =
-                          labelPaint.getFontMetrics();
-
-                      float baseline =
-                          (h / 2f) -
-                          ((fm.ascent + fm.descent) / 2f);
-
-                      canvas.drawText(
-                          "ENFRIAR",
-                          w / 2f,
-                          baseline,
-                          labelPaint
-                      );
+                      evaluateJavascript(js, null);
                   }
 
-                  /**
-                   * Capa clara que se "rompe" de izquierda a derecha
-                   * en 22 pasos. El borde ondulado + pequeñas islas
-                   * reproduce el carácter orgánico de MASK1/nature.
-                   */
-                  private void drawNatureMaskOverlay(
-                      Canvas canvas,
-                      float w,
-                      float h,
-                      float progress
-                  ) {
-                      float edgeBase = progress * w;
-
-                      overlayPath.reset();
-
-                      if (progress <= 0f) {
-                          overlayPath.addRect(
-                              0f,
-                              0f,
-                              w,
-                              h,
-                              Path.Direction.CW
-                          );
-                      } else {
-                          float stepY =
-                              Math.max(
-                                  dpLocal(2f),
-                                  h / 28f
-                              );
-
-                          float firstX =
-                              organicEdgeX(
-                                  0f,
-                                  edgeBase,
-                                  w,
-                                  h
-                              );
-
-                          overlayPath.moveTo(firstX, 0f);
-                          overlayPath.lineTo(w, 0f);
-                          overlayPath.lineTo(w, h);
-
-                          for (
-                              float y = h;
-                              y >= 0f;
-                              y -= stepY
-                          ) {
-                              overlayPath.lineTo(
-                                  organicEdgeX(
-                                      y,
-                                      edgeBase,
-                                      w,
-                                      h
-                                  ),
-                                  y
-                              );
-                          }
-
-                          overlayPath.close();
-                      }
-
-                      overlayPaint.setStyle(Paint.Style.FILL);
-                      overlayPaint.setColor(idleColor);
-                      canvas.drawPath(
-                          overlayPath,
-                          overlayPaint
-                      );
-
-                      // Pequeñas "mordidas" azules alrededor del frente
-                      // de la máscara para darle el look de sprite nature.
-                      speckPaint.setStyle(Paint.Style.FILL);
-                      speckPaint.setColor(activeBlue);
-
-                      float[] yPos = {
-                          0.18f, 0.34f, 0.52f,
-                          0.70f, 0.84f
-                      };
-                      float[] xOff = {
-                          10f, 20f, 8f, 24f, 14f
-                      };
-                      float[] radii = {
-                          3.6f, 2.5f, 4.2f, 3.0f, 2.2f
-                      };
-
-                      for (int i = 0; i < yPos.length; i++) {
-                          float cy = h * yPos[i];
-
-                          float cx =
-                              edgeBase +
-                              dpLocal(xOff[i]) +
-                              (float) Math.sin(
-                                  (maskFrame * 0.55f) +
-                                  (i * 1.7f)
-                              ) *
-                              dpLocal(4f);
-
-                          if (
-                              cx > 0f &&
-                              cx < w &&
-                              progress > 0.04f &&
-                              progress < 0.97f
-                          ) {
-                              canvas.drawCircle(
-                                  cx,
-                                  cy,
-                                  dpLocal(radii[i]),
-                                  speckPaint
-                              );
-                          }
-                      }
-                  }
-
-                  private float organicEdgeX(
-                      float y,
-                      float edgeBase,
-                      float w,
-                      float h
-                  ) {
-                      float yn =
-                          h <= 0f ? 0f : y / h;
-
-                      float wave1 =
-                          (float) Math.sin(
-                              yn * 12.4f +
-                              maskFrame * 0.31f
-                          ) *
-                          dpLocal(5.6f);
-
-                      float wave2 =
-                          (float) Math.sin(
-                              yn * 27.0f -
-                              maskFrame * 0.17f
-                          ) *
-                          dpLocal(2.6f);
-
-                      float wave3 =
-                          (float) Math.cos(
-                              yn * 7.2f +
-                              maskFrame * 0.21f
-                          ) *
-                          dpLocal(1.8f);
-
-                      float x =
-                          edgeBase +
-                          wave1 +
-                          wave2 +
-                          wave3;
-
-                      return Math.max(
-                          0f,
-                          Math.min(w, x)
-                      );
-                  }
-
-                  private int blendColor(
-                      int from,
-                      int to,
-                      float t
-                  ) {
-                      t = Math.max(
-                          0f,
-                          Math.min(1f, t)
-                      );
-
-                      int r = Math.round(
-                          Color.red(from) +
-                          (
-                              Color.red(to) -
-                              Color.red(from)
-                          ) * t
-                      );
-                      int g = Math.round(
-                          Color.green(from) +
-                          (
-                              Color.green(to) -
-                              Color.green(from)
-                          ) * t
-                      );
-                      int b = Math.round(
-                          Color.blue(from) +
-                          (
-                              Color.blue(to) -
-                              Color.blue(from)
-                          ) * t
-                      );
-
-                      return Color.rgb(r, g, b);
-                  }
-
-                  private float dpLocal(float value) {
-                      return
-                          value *
-                          getResources()
-                              .getDisplayMetrics()
-                              .density;
-                  }
-
-                  @Override
-                  protected void onDetachedFromWindow() {
-                      super.onDetachedFromWindow();
-
-                      if (maskAnimator != null) {
-                          maskAnimator.cancel();
+                  private final class MaskBridge {
+                      @JavascriptInterface
+                      public void onTap() {
+                          post(() -> {
+                              if (
+                                  isEnabled() &&
+                                  nativeClick != null
+                              ) {
+                                  performHapticFeedback(
+                                      HapticFeedbackConstants.CLOCK_TICK
+                                  );
+                                  nativeClick.run();
+                              }
+                          });
                       }
                   }
               }
@@ -3626,7 +3563,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.25_MASK1_Enfriar.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.26_MASK1_REAL_Enfriar.apk
 
       - name: Verify APK signature
         env:
@@ -3636,23 +3573,23 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.25_MASK1_Enfriar.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.26_MASK1_REAL_Enfriar.apk
 
       - name: Generate in-app update manifest
         shell: bash
         run: |
           set -euo pipefail
 
-          APK="AireSmart_Remote_v1.0.25_MASK1_Enfriar.apk"
+          APK="AireSmart_Remote_v1.0.26_MASK1_REAL_Enfriar.apk"
           SHA256="$(sha256sum "$APK" | awk '{print $1}')"
 
           cat > latest.json <<EOF
           {
-            "versionCode": 26,
-            "versionName": "1.0.25",
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.25/${APK}",
+            "versionCode": 27,
+            "versionName": "1.0.26",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.26/${APK}",
             "sha256": "${SHA256}",
-            "notes": "MASK1 visual agregado únicamente al botón ENFRIAR."
+            "notes": "MASK1 real (nature-sprite, 22 pasos) agregado únicamente al botón ENFRIAR."
           }
           EOF
 
@@ -3663,8 +3600,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="v1.0.25"
-          APK="AireSmart_Remote_v1.0.25_MASK1_Enfriar.apk"
+          TAG="v1.0.26"
+          APK="AireSmart_Remote_v1.0.26_MASK1_REAL_Enfriar.apk"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload \
@@ -3677,7 +3614,7 @@ jobs:
               "$TAG" \
               "$APK" \
               latest.json \
-              --title "AireSmart Remote v1.0.25" \
+              --title "AireSmart Remote v1.0.26" \
               --notes "Mismo AireSmart Remote, con efecto Flush visual únicamente en ENFRIAR."
           fi
 
@@ -3689,7 +3626,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.25-MASK1-Enfriar
+          name: AireSmart-Remote-v1.0.26-MASK1-REAL-Enfriar
           path: |
-            AireSmart_Remote_v1.0.25_MASK1_Enfriar.apk
+            AireSmart_Remote_v1.0.26_MASK1_REAL_Enfriar.apk
             latest.json
