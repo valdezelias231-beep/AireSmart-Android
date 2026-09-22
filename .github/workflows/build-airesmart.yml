@@ -105,8 +105,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 25
-                  versionName "1.0.24"
+                  versionCode 26
+                  versionName "1.0.25"
               }
 
               signingConfigs {
@@ -264,7 +264,7 @@ jobs:
               private SharedPreferences prefs;
 
               private TextView cloudStatus, detailState, systemState, heroSub, ackState;
-              private FlushCoolButton coolButton;
+              private Mask1CoolButton coolButton;
               private Button fanButton, lowButton, highButton;
               private PowerRingView powerRing;
 
@@ -1032,7 +1032,7 @@ jobs:
                   LinearLayout modes = new LinearLayout(this);
                   modes.setOrientation(LinearLayout.HORIZONTAL);
 
-                  coolButton = new FlushCoolButton(this);
+                  coolButton = new Mask1CoolButton(this);
                   fanButton = button("SOLO AIRE", Color.rgb(32,183,201));
 
                   coolButton.setOnClickListener(v -> sendMode("cool"));
@@ -1129,7 +1129,7 @@ jobs:
                   up.topMargin = dp(14);
                   root.addView(updateCard, up);
 
-                  TextView version = text("AireSmart Remote v1.0.24", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.25", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -2656,15 +2656,15 @@ jobs:
                   if (fanMode) {
                       fanButton.setBackground(bg(Color.rgb(32,183,201), 14));
                       fanButton.setTextColor(Color.WHITE);
-                      coolButton.setFlushActive(false);
+                      coolButton.setMaskActive(false);
                   } else if (systemActive) {
-                      // Solo ENFRIAR conserva el efecto Flush aprobado.
+                      // Solo ENFRIAR usa MASK1 por ahora.
                       // La lógica MQTT/ACK no cambia; esto es únicamente visual.
-                      coolButton.setFlushActive(true);
+                      coolButton.setMaskActive(true);
                       fanButton.setBackground(bg(Color.rgb(220,226,233), 14));
                       fanButton.setTextColor(Color.rgb(92,112,136));
                   } else {
-                      coolButton.setFlushActive(false);
+                      coolButton.setMaskActive(false);
                       fanButton.setBackground(bg(Color.rgb(220,226,233), 14));
                       fanButton.setTextColor(Color.rgb(92,112,136));
                   }
@@ -2912,36 +2912,45 @@ jobs:
                * - Activo: base azul, mitad superior oscura y burbujas ascendentes.
                * - No altera MQTT, ACK, estados ni tiempos; solo dibuja la apariencia.
                */
-              public static class FlushCoolButton extends Button {
+              /**
+               * MASK1 para ENFRIAR.
+               *
+               * Replica en Android nativo la sensación del ejemplo CSS:
+               * - 0.7 s
+               * - 22 pasos discretos
+               * - transición orgánica tipo "nature mask"
+               * - fondo claro cuando está inactivo
+               * - azul AireSmart cuando queda seleccionado
+               *
+               * No toca MQTT/ACK/estados; únicamente dibuja el botón.
+               */
+              public static class Mask1CoolButton extends Button {
+                  private static final int MASK_STEPS = 22;
+
                   private final Paint basePaint =
                       new Paint(Paint.ANTI_ALIAS_FLAG);
-                  private final Paint darkPaint =
-                      new Paint(Paint.ANTI_ALIAS_FLAG);
-                  private final Paint bubblePaint =
+                  private final Paint overlayPaint =
                       new Paint(Paint.ANTI_ALIAS_FLAG);
                   private final Paint labelPaint =
                       new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint speckPaint =
+                      new Paint(Paint.ANTI_ALIAS_FLAG);
+
                   private final RectF bounds = new RectF();
-
-                  private boolean flushActive = false;
-                  private float reveal = 0f;
-                  private float bubblePhase = 0f;
-
-                  private ValueAnimator revealAnimator;
-                  private ValueAnimator bubbleAnimator;
+                  private final Path overlayPath = new Path();
 
                   private final int idleColor =
                       Color.rgb(220, 226, 233);
                   private final int idleText =
                       Color.rgb(92, 112, 136);
-                  private final int flushBlue =
-                      Color.rgb(21, 107, 193);
-                  private final int flushDark =
-                      Color.rgb(20, 18, 24);
-                  private final int bubbleColor =
-                      Color.rgb(198, 217, 236);
+                  private final int activeBlue =
+                      Color.rgb(13, 125, 246);
 
-                  public FlushCoolButton(Context context) {
+                  private boolean maskActive = false;
+                  private int maskFrame = 0;
+                  private ValueAnimator maskAnimator;
+
+                  public Mask1CoolButton(Context context) {
                       super(context);
 
                       setAllCaps(false);
@@ -2957,96 +2966,50 @@ jobs:
                               .getDisplayMetrics()
                               .scaledDensity
                       );
-
-                      bubblePaint.setStyle(Paint.Style.STROKE);
-                      bubblePaint.setStrokeWidth(dpLocal(1.4f));
                   }
 
-                  public void setFlushActive(boolean active) {
+                  public void setMaskActive(boolean active) {
+                      int target = active ? MASK_STEPS : 0;
+
                       if (
-                          flushActive == active &&
-                          (
-                              (active && reveal >= 0.999f) ||
-                              (!active && reveal <= 0.001f)
-                          )
+                          maskActive == active &&
+                          maskFrame == target
                       ) {
                           return;
                       }
 
-                      flushActive = active;
+                      maskActive = active;
 
-                      if (revealAnimator != null) {
-                          revealAnimator.cancel();
+                      if (maskAnimator != null) {
+                          maskAnimator.cancel();
                       }
 
-                      float target = active ? 1f : 0f;
+                      int distance = Math.abs(target - maskFrame);
+                      long duration = Math.max(
+                          90L,
+                          Math.round(
+                              700f *
+                              (
+                                  distance /
+                                  (float) MASK_STEPS
+                              )
+                          )
+                      );
 
-                      revealAnimator = ValueAnimator.ofFloat(
-                          reveal,
+                      maskAnimator = ValueAnimator.ofInt(
+                          maskFrame,
                           target
                       );
-                      revealAnimator.setDuration(420);
-                      revealAnimator.setInterpolator(
-                          new AccelerateDecelerateInterpolator()
-                      );
-                      revealAnimator.addUpdateListener(animator -> {
-                          reveal =
-                              (Float) animator.getAnimatedValue();
-                          invalidate();
-                      });
-                      revealAnimator.addListener(
-                          new AnimatorListenerAdapter() {
-                              @Override
-                              public void onAnimationEnd(
-                                  Animator animation
-                              ) {
-                                  if (flushActive) {
-                                      startBubbles();
-                                  } else {
-                                      stopBubbles();
-                                      bubblePhase = 0f;
-                                      invalidate();
-                                  }
-                              }
-                          }
-                      );
-                      revealAnimator.start();
-
-                      if (active) {
-                          startBubbles();
-                      }
-                  }
-
-                  private void startBubbles() {
-                      if (
-                          bubbleAnimator != null &&
-                          bubbleAnimator.isRunning()
-                      ) {
-                          return;
-                      }
-
-                      bubbleAnimator =
-                          ValueAnimator.ofFloat(0f, 1f);
-                      bubbleAnimator.setDuration(5000);
-                      bubbleAnimator.setRepeatCount(
-                          ValueAnimator.INFINITE
-                      );
-                      bubbleAnimator.setInterpolator(
+                      maskAnimator.setDuration(duration);
+                      maskAnimator.setInterpolator(
                           new LinearInterpolator()
                       );
-                      bubbleAnimator.addUpdateListener(animator -> {
-                          bubblePhase =
-                              (Float) animator.getAnimatedValue();
+                      maskAnimator.addUpdateListener(animator -> {
+                          maskFrame =
+                              (Integer) animator.getAnimatedValue();
                           invalidate();
                       });
-                      bubbleAnimator.start();
-                  }
-
-                  private void stopBubbles() {
-                      if (bubbleAnimator != null) {
-                          bubbleAnimator.cancel();
-                          bubbleAnimator = null;
-                      }
+                      maskAnimator.start();
                   }
 
                   @Override
@@ -3054,22 +3017,16 @@ jobs:
                       float w = getWidth();
                       float h = getHeight();
 
-                      if (w <= 0 || h <= 0) {
+                      if (w <= 0f || h <= 0f) {
                           return;
                       }
 
                       float radius = dpLocal(14f);
                       bounds.set(0f, 0f, w, h);
 
-                      // Al estar inactivo no existe capa oscura:
-                      // evita la línea negra que vimos en la prueba.
-                      int baseColor = blendColor(
-                          idleColor,
-                          flushBlue,
-                          reveal
-                      );
-                      basePaint.setColor(baseColor);
+                      // El color seleccionado vive debajo de la máscara.
                       basePaint.setStyle(Paint.Style.FILL);
+                      basePaint.setColor(activeBlue);
                       canvas.drawRoundRect(
                           bounds,
                           radius,
@@ -3077,50 +3034,51 @@ jobs:
                           basePaint
                       );
 
-                      if (reveal > 0.001f) {
+                      float progress =
+                          maskFrame /
+                          (float) MASK_STEPS;
+
+                      // En el frame 0 el botón queda 100 % limpio/gris.
+                      if (maskFrame <= 0) {
+                          overlayPaint.setStyle(Paint.Style.FILL);
+                          overlayPaint.setColor(idleColor);
+                          canvas.drawRoundRect(
+                              bounds,
+                              radius,
+                              radius,
+                              overlayPaint
+                          );
+
+                      } else if (maskFrame < MASK_STEPS) {
                           int save = canvas.save();
 
-                          Path flushClipPath = new Path();
-                          flushClipPath.addRoundRect(
+                          Path clip = new Path();
+                          clip.addRoundRect(
                               bounds,
                               radius,
                               radius,
                               Path.Direction.CW
                           );
-                          canvas.clipPath(flushClipPath);
+                          canvas.clipPath(clip);
 
-                          // Mitad superior oscura: aparece únicamente
-                          // durante/tras la activación.
-                          darkPaint.setStyle(Paint.Style.FILL);
-                          darkPaint.setColor(flushDark);
-                          darkPaint.setAlpha(
-                              Math.round(255f * reveal)
-                          );
-
-                          float darkHeight =
-                              (h * 0.50f) * reveal;
-
-                          canvas.drawRect(
-                              0f,
-                              0f,
+                          drawNatureMaskOverlay(
+                              canvas,
                               w,
-                              darkHeight,
-                              darkPaint
+                              h,
+                              progress
                           );
-
-                          drawBubbles(canvas, w, h, reveal);
 
                           canvas.restoreToCount(save);
                       }
 
+                      // Texto cambia suavemente de gris a blanco.
                       labelPaint.setColor(
                           blendColor(
                               idleText,
                               Color.WHITE,
-                              reveal
+                              progress
                           )
                       );
-                      labelPaint.setAlpha(255);
 
                       Paint.FontMetrics fm =
                           labelPaint.getFontMetrics();
@@ -3137,65 +3095,157 @@ jobs:
                       );
                   }
 
-                  private void drawBubbles(
+                  /**
+                   * Capa clara que se "rompe" de izquierda a derecha
+                   * en 22 pasos. El borde ondulado + pequeñas islas
+                   * reproduce el carácter orgánico de MASK1/nature.
+                   */
+                  private void drawNatureMaskOverlay(
                       Canvas canvas,
                       float w,
                       float h,
-                      float alphaFactor
+                      float progress
                   ) {
-                      bubblePaint.setColor(bubbleColor);
-                      bubblePaint.setAlpha(
-                          Math.round(
-                              165f * alphaFactor
-                          )
-                      );
+                      float edgeBase = progress * w;
 
-                      float travel = h * 2.15f;
-                      float shift =
-                          bubblePhase * travel;
+                      overlayPath.reset();
 
-                      for (int row = 0; row < 4; row++) {
-                          float baseY =
-                              h +
-                              (row * h * 0.68f) -
-                              shift;
+                      if (progress <= 0f) {
+                          overlayPath.addRect(
+                              0f,
+                              0f,
+                              w,
+                              h,
+                              Path.Direction.CW
+                          );
+                      } else {
+                          float stepY =
+                              Math.max(
+                                  dpLocal(2f),
+                                  h / 28f
+                              );
 
-                          while (baseY < -h * 0.45f) {
-                              baseY += travel;
+                          float firstX =
+                              organicEdgeX(
+                                  0f,
+                                  edgeBase,
+                                  w,
+                                  h
+                              );
+
+                          overlayPath.moveTo(firstX, 0f);
+                          overlayPath.lineTo(w, 0f);
+                          overlayPath.lineTo(w, h);
+
+                          for (
+                              float y = h;
+                              y >= 0f;
+                              y -= stepY
+                          ) {
+                              overlayPath.lineTo(
+                                  organicEdgeX(
+                                      y,
+                                      edgeBase,
+                                      w,
+                                      h
+                                  ),
+                                  y
+                              );
                           }
 
-                          drawBubble(
-                              canvas,
-                              w * 0.20f,
-                              baseY - h * 0.10f,
-                              dpLocal(3.5f)
-                          );
-                          drawBubble(
-                              canvas,
-                              w * 0.75f,
-                              baseY + h * 0.04f,
-                              dpLocal(3.2f)
-                          );
-                          drawBubble(
-                              canvas,
-                              w * 0.46f,
-                              baseY + h * 0.20f,
-                              dpLocal(5.2f)
-                          );
+                          overlayPath.close();
+                      }
+
+                      overlayPaint.setStyle(Paint.Style.FILL);
+                      overlayPaint.setColor(idleColor);
+                      canvas.drawPath(
+                          overlayPath,
+                          overlayPaint
+                      );
+
+                      // Pequeñas "mordidas" azules alrededor del frente
+                      // de la máscara para darle el look de sprite nature.
+                      speckPaint.setStyle(Paint.Style.FILL);
+                      speckPaint.setColor(activeBlue);
+
+                      float[] yPos = {
+                          0.18f, 0.34f, 0.52f,
+                          0.70f, 0.84f
+                      };
+                      float[] xOff = {
+                          10f, 20f, 8f, 24f, 14f
+                      };
+                      float[] radii = {
+                          3.6f, 2.5f, 4.2f, 3.0f, 2.2f
+                      };
+
+                      for (int i = 0; i < yPos.length; i++) {
+                          float cy = h * yPos[i];
+
+                          float cx =
+                              edgeBase +
+                              dpLocal(xOff[i]) +
+                              (float) Math.sin(
+                                  (maskFrame * 0.55f) +
+                                  (i * 1.7f)
+                              ) *
+                              dpLocal(4f);
+
+                          if (
+                              cx > 0f &&
+                              cx < w &&
+                              progress > 0.04f &&
+                              progress < 0.97f
+                          ) {
+                              canvas.drawCircle(
+                                  cx,
+                                  cy,
+                                  dpLocal(radii[i]),
+                                  speckPaint
+                              );
+                          }
                       }
                   }
 
-                  private void drawBubble(
-                      Canvas canvas,
-                      float x,
+                  private float organicEdgeX(
                       float y,
-                      float radius
+                      float edgeBase,
+                      float w,
+                      float h
                   ) {
-                      canvas.drawCircle(
-                          x,
-                          y,
-                          radius,
-                          bubblePaint
+                      float yn =
+                          h <= 0f ? 0f : y / h;
+
+                      float wave1 =
+                          (float) Math.sin(
+                              yn * 12.4f +
+                              maskFrame * 0.31f
+                          ) *
+                          dpLocal(5.6f);
+
+                      float wave2 =
+                          (float) Math.sin(
+                              yn * 27.0f -
+                              maskFrame * 0.17f
+                          ) *
+                          dpLocal(2.6f);
+
+                      float wave3 =
+                          (float) Math.cos(
+                              yn * 7.2f +
+                              maskFrame * 0.21f
+                          ) *
+                          dpLocal(1.8f);
+
+                      float x =
+                          edgeBase +
+                          wave1 +
+                          wave2 +
+                          wave3;
+
+                      return Math.max(
+                          0f,
+                          Math.min(w, x)
                       );
                   }
 
@@ -3204,15 +3254,11 @@ jobs:
                       int to,
                       float t
                   ) {
-                      t = Math.max(0f, Math.min(1f, t));
-
-                      int a = Math.round(
-                          Color.alpha(from) +
-                          (
-                              Color.alpha(to) -
-                              Color.alpha(from)
-                          ) * t
+                      t = Math.max(
+                          0f,
+                          Math.min(1f, t)
                       );
+
                       int r = Math.round(
                           Color.red(from) +
                           (
@@ -3235,7 +3281,7 @@ jobs:
                           ) * t
                       );
 
-                      return Color.argb(a, r, g, b);
+                      return Color.rgb(r, g, b);
                   }
 
                   private float dpLocal(float value) {
@@ -3250,11 +3296,9 @@ jobs:
                   protected void onDetachedFromWindow() {
                       super.onDetachedFromWindow();
 
-                      if (revealAnimator != null) {
-                          revealAnimator.cancel();
+                      if (maskAnimator != null) {
+                          maskAnimator.cancel();
                       }
-
-                      stopBubbles();
                   }
               }
 
@@ -3582,7 +3626,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.24_Flush_Enfriar.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.25_MASK1_Enfriar.apk
 
       - name: Verify APK signature
         env:
@@ -3592,23 +3636,23 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.24_Flush_Enfriar.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.25_MASK1_Enfriar.apk
 
       - name: Generate in-app update manifest
         shell: bash
         run: |
           set -euo pipefail
 
-          APK="AireSmart_Remote_v1.0.24_Flush_Enfriar.apk"
+          APK="AireSmart_Remote_v1.0.25_MASK1_Enfriar.apk"
           SHA256="$(sha256sum "$APK" | awk '{print $1}')"
 
           cat > latest.json <<EOF
           {
-            "versionCode": 25,
-            "versionName": "1.0.24",
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.24/${APK}",
+            "versionCode": 26,
+            "versionName": "1.0.25",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.25/${APK}",
             "sha256": "${SHA256}",
-            "notes": "Efecto Flush visual agregado únicamente al botón ENFRIAR."
+            "notes": "MASK1 visual agregado únicamente al botón ENFRIAR."
           }
           EOF
 
@@ -3619,8 +3663,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="v1.0.24"
-          APK="AireSmart_Remote_v1.0.24_Flush_Enfriar.apk"
+          TAG="v1.0.25"
+          APK="AireSmart_Remote_v1.0.25_MASK1_Enfriar.apk"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload \
@@ -3633,7 +3677,7 @@ jobs:
               "$TAG" \
               "$APK" \
               latest.json \
-              --title "AireSmart Remote v1.0.24" \
+              --title "AireSmart Remote v1.0.25" \
               --notes "Mismo AireSmart Remote, con efecto Flush visual únicamente en ENFRIAR."
           fi
 
@@ -3645,7 +3689,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.24-Flush-Enfriar
+          name: AireSmart-Remote-v1.0.25-MASK1-Enfriar
           path: |
-            AireSmart_Remote_v1.0.24_Flush_Enfriar.apk
+            AireSmart_Remote_v1.0.25_MASK1_Enfriar.apk
             latest.json
