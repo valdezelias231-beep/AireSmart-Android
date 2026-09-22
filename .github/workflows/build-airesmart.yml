@@ -71,199 +71,13 @@ jobs:
           mkdir -p app/src/main/res/drawable
           mkdir -p app/src/main/assets
 
-          # Sprite ORIGINAL de MASK1. Se empaqueta dentro del APK para que
-          # el efecto no dependa de Internet en tiempo de ejecución.
+          # MASK1 ORIGINAL. Se descarga una sola vez durante el build y
+          # queda empaquetado dentro del APK; no necesita Internet al usar la app.
           curl -fL --retry 3 --retry-delay 2 \
             "https://raw.githubusercontent.com/robin-dela/css-mask-animation/master/img/nature-sprite.png" \
             -o app/src/main/assets/nature-sprite.png
           test -s app/src/main/assets/nature-sprite.png
 
-
-          # HTML exacto aprobado en la demo: mismo MASK1, mismo fondo y mismas medidas.
-          cat > app/src/main/assets/mask1_enfriar.html <<'EOF'
-          <!doctype html>
-          <html lang="es">
-          <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-          <style>
-          *{
-            box-sizing:border-box;
-            -webkit-tap-highlight-color:transparent;
-          }
-
-          html,body{
-            margin:0;
-            width:100%;
-            height:100%;
-            overflow:hidden;
-            background:transparent;
-            font-family:Arial,Helvetica,sans-serif;
-          }
-
-          /* EXACTAMENTE la variante aprobada del demo */
-          .mask1-container{
-            position:relative;
-            width:100%;
-            height:100%;
-            overflow:hidden;
-            border:1px solid #d2dae5;
-            font-family:Arial,Helvetica,sans-serif;
-            font-weight:300;
-            transition:.5s;
-            letter-spacing:1px;
-            border-radius:8px;
-            background:#0d7df6;
-          }
-
-          .mask1-container .mas{
-            position:absolute;
-            color:#fff;
-            text-align:center;
-            width:101%;
-            font-family:Arial,Helvetica,sans-serif;
-            font-weight:700;
-            font-size:17px;
-            margin-top:16px;
-            overflow:hidden;
-            pointer-events:none;
-          }
-
-          .mask1-container button{
-            width:101%;
-            height:100%;
-            font-family:Arial,Helvetica,sans-serif;
-            font-size:17px;
-            letter-spacing:1px;
-            font-weight:700;
-
-            /* En vez del negro: el fondo aprobado */
-            background:#f5f6f8;
-            color:#5c7088;
-
-            -webkit-mask:url('nature-sprite.png');
-            mask:url('nature-sprite.png');
-            -webkit-mask-size:2300% 100%;
-            mask-size:2300% 100%;
-
-            border:none;
-            cursor:pointer;
-
-            -webkit-animation:ani2 .7s steps(22) forwards;
-            animation:ani2 .7s steps(22) forwards;
-          }
-
-          .mask1-container.active button{
-            -webkit-animation:ani .7s steps(22) forwards;
-            animation:ani .7s steps(22) forwards;
-          }
-
-          @-webkit-keyframes ani{
-            from{
-              -webkit-mask-position:0 0;
-              mask-position:0 0;
-            }
-            to{
-              -webkit-mask-position:100% 0;
-              mask-position:100% 0;
-            }
-          }
-
-          @keyframes ani{
-            from{
-              -webkit-mask-position:0 0;
-              mask-position:0 0;
-            }
-            to{
-              -webkit-mask-position:100% 0;
-              mask-position:100% 0;
-            }
-          }
-
-          @-webkit-keyframes ani2{
-            from{
-              -webkit-mask-position:100% 0;
-              mask-position:100% 0;
-            }
-            to{
-              -webkit-mask-position:0 0;
-              mask-position:0 0;
-            }
-          }
-
-          @keyframes ani2{
-            from{
-              -webkit-mask-position:100% 0;
-              mask-position:100% 0;
-            }
-            to{
-              -webkit-mask-position:0 0;
-              mask-position:0 0;
-            }
-          }
-          </style>
-          </head>
-          <body>
-            <div class="mask1-container" id="mask1">
-              <span class="mas">ENFRIAR</span>
-              <button id="maskLayer" type="button">ENFRIAR</button>
-            </div>
-
-          <script>
-          const container = document.getElementById('mask1');
-          const button = document.getElementById('maskLayer');
-          let visualActive = false;
-
-          function restartAnimation(active){
-            button.style.webkitAnimation = 'none';
-            button.style.animation = 'none';
-            void button.offsetWidth;
-
-            container.classList.toggle('active', !!active);
-
-            button.style.webkitAnimation = '';
-            button.style.animation = '';
-          }
-
-          window.setMaskActive = function(active, animate){
-            visualActive = !!active;
-
-            if(!animate){
-              container.classList.toggle('active', visualActive);
-
-              button.style.webkitAnimation = 'none';
-              button.style.animation = 'none';
-              button.style.webkitMaskPosition = visualActive ? '100% 0' : '0 0';
-              button.style.maskPosition = visualActive ? '100% 0' : '0 0';
-              return;
-            }
-
-            button.style.webkitMaskPosition = '';
-            button.style.maskPosition = '';
-            restartAnimation(visualActive);
-          };
-
-          container.addEventListener('click', function(){
-            /*
-             * Igual que el demo aprobado:
-             * si estaba gris, toca y ejecuta MASK1 hacia azul.
-             * El estado real del ESP32 después confirma o revierte.
-             */
-            if(!visualActive){
-              visualActive = true;
-              button.style.webkitMaskPosition = '';
-              button.style.maskPosition = '';
-              restartAnimation(true);
-            }
-
-            if(window.AndroidMask && AndroidMask.onTap){
-              AndroidMask.onTap();
-            }
-          });
-          </script>
-          </body>
-          </html>
-          EOF
 
           cat > settings.gradle <<'EOF'
           pluginManagement {
@@ -300,8 +114,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 28
-                  versionName "1.0.27"
+                  versionCode 29
+                  versionName "1.0.28"
               }
 
               signingConfigs {
@@ -396,8 +210,13 @@ jobs:
           import android.content.Intent;
           import android.content.SharedPreferences;
           import android.graphics.Canvas;
+          import android.graphics.Bitmap;
+          import android.graphics.BitmapFactory;
           import android.graphics.Color;
           import android.graphics.Paint;
+          import android.graphics.PorterDuff;
+          import android.graphics.PorterDuffXfermode;
+          import android.graphics.Rect;
           import android.graphics.Path;
           import android.graphics.RectF;
           import android.graphics.Typeface;
@@ -425,10 +244,6 @@ jobs:
           import android.widget.ScrollView;
           import android.widget.TextView;
           import android.widget.Toast;
-          import android.webkit.JavascriptInterface;
-          import android.webkit.WebSettings;
-          import android.webkit.WebView;
-          import android.webkit.WebViewClient;
 
           import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
           import org.eclipse.paho.client.mqttv3.MqttCallbackExtended;
@@ -453,6 +268,7 @@ jobs:
           import java.io.BufferedReader;
           import java.io.InputStream;
           import java.io.InputStreamReader;
+          import java.io.IOException;
           import java.io.OutputStream;
 
           public class MainActivity extends Activity {
@@ -463,7 +279,7 @@ jobs:
               private SharedPreferences prefs;
 
               private TextView cloudStatus, detailState, systemState, heroSub, ackState;
-              private Mask1CoolWebView coolButton;
+              private Mask1SpriteButton coolButton;
               private Button fanButton, lowButton, highButton;
               private PowerRingView powerRing;
 
@@ -1231,10 +1047,15 @@ jobs:
                   LinearLayout modes = new LinearLayout(this);
                   modes.setOrientation(LinearLayout.HORIZONTAL);
 
-                  coolButton = new Mask1CoolWebView(this);
-                  coolButton.setNativeClick(() -> sendMode("cool"));
+                  coolButton = new Mask1SpriteButton(this);
                   fanButton = button("SOLO AIRE", Color.rgb(32,183,201));
 
+                  coolButton.setOnClickListener(v -> {
+                      // La animación MASK1 arranca al tocar, como en el demo.
+                      // El siguiente estado real MQTT confirma o revierte.
+                      coolButton.previewActivate();
+                      sendMode("cool");
+                  });
                   fanButton.setOnClickListener(v -> sendMode("fan"));
                   addPressEffect(coolButton);
                   addPressEffect(fanButton);
@@ -1328,7 +1149,7 @@ jobs:
                   up.topMargin = dp(14);
                   root.addView(updateCard, up);
 
-                  TextView version = text("AireSmart Remote v1.0.27", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.28", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -2857,7 +2678,7 @@ jobs:
                       fanButton.setTextColor(Color.WHITE);
                       coolButton.setMaskActive(false);
                   } else if (systemActive) {
-                      // Solo ENFRIAR usa el MASK1 REAL del demo CSS.
+                      // Solo ENFRIAR usa MASK1 con el sprite original.
                       // La lógica MQTT/ACK no cambia; esto es únicamente visual.
                       coolButton.setMaskActive(true);
                       fanButton.setBackground(bg(Color.rgb(220,226,233), 14));
@@ -3112,100 +2933,435 @@ jobs:
                * - No altera MQTT, ACK, estados ni tiempos; solo dibuja la apariencia.
                */
               /**
-               * MASK1 EXACTO APROBADO:
-               * usa el mismo HTML/CSS del segundo botón del demo aprobado,
-               * con nature-sprite.png, 0.7 s y steps(22).
+               * MASK1 EXACTO A NIVEL DE SPRITE.
                *
-               * Se ejecuta dentro de un WebView del tamaño exacto del botón,
-               * mientras la lógica MQTT sigue siendo 100 % nativa.
+               * El CSS original usa:
+               *   nature-sprite.png
+               *   mask-size: 2300% 100%
+               *   0.7 s
+               *   steps(22)
+               *
+               * 2300% equivale a 23 cuadros horizontales.
+               * Aquí Android dibuja directamente esos mismos 23 cuadros,
+               * sin WebView y sin intentar inventar la forma.
                */
-              public static class Mask1CoolWebView extends WebView {
-                  private Runnable nativeClick;
-                  private boolean pageReady = false;
+              public static class Mask1SpriteButton extends View {
+                  private static final int FRAME_COUNT = 23;
+                  private static final int LAST_FRAME = 22;
+                  private static final long FULL_DURATION_MS = 700L;
+
+                  private final Paint basePaint =
+                      new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint topPaint =
+                      new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint textPaint =
+                      new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint borderPaint =
+                      new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint maskPaint =
+                      new Paint(Paint.ANTI_ALIAS_FLAG);
+
+                  private final Rect sourceRect = new Rect();
+                  private final RectF destRect = new RectF();
+                  private final RectF viewRect = new RectF();
+                  private final Path clipPath = new Path();
+
+                  private Bitmap sprite;
+                  private ValueAnimator frameAnimator;
+
+                  // Frame 0 = capa clara completa.
+                  // Frame 22 = capa clara retirada / azul revelado.
+                  private int currentFrame = 0;
                   private boolean desiredActive = false;
 
-                  public Mask1CoolWebView(Context context) {
+                  private final int idleBackground =
+                      Color.rgb(245, 246, 248); // #F5F6F8 aprobado
+                  private final int idleText =
+                      Color.rgb(92, 112, 136); // #5C7088
+                  private final int activeBlue =
+                      Color.rgb(13, 125, 246); // #0D7DF6
+                  private final int borderColor =
+                      Color.rgb(210, 218, 229); // #D2DAE5
+
+                  public Mask1SpriteButton(Context context) {
                       super(context);
 
-                      setBackgroundColor(Color.TRANSPARENT);
-                      setVerticalScrollBarEnabled(false);
-                      setHorizontalScrollBarEnabled(false);
-                      setOverScrollMode(View.OVER_SCROLL_NEVER);
+                      setClickable(true);
+                      setFocusable(true);
+                      setContentDescription("ENFRIAR");
 
-                      WebSettings settings = getSettings();
-                      settings.setJavaScriptEnabled(true);
-                      settings.setAllowFileAccess(true);
-                      settings.setAllowContentAccess(false);
-                      settings.setDomStorageEnabled(false);
-                      settings.setSupportZoom(false);
-                      settings.setBuiltInZoomControls(false);
-                      settings.setDisplayZoomControls(false);
+                      /*
+                       * DST_IN + saveLayer es mucho más estable en software
+                       * para este control pequeño y evita diferencias entre GPU.
+                       */
+                      setLayerType(View.LAYER_TYPE_SOFTWARE, null);
 
-                      addJavascriptInterface(
-                          new MaskBridge(),
-                          "AndroidMask"
+                      textPaint.setTextAlign(Paint.Align.CENTER);
+                      textPaint.setTypeface(Typeface.DEFAULT_BOLD);
+                      textPaint.setTextSize(
+                          17f *
+                          getResources()
+                              .getDisplayMetrics()
+                              .scaledDensity
                       );
 
-                      setWebViewClient(new WebViewClient() {
-                          @Override
-                          public void onPageFinished(
-                              WebView view,
-                              String url
-                          ) {
-                              pageReady = true;
-                              applyDesiredState(false);
-                          }
-                      });
+                      borderPaint.setStyle(Paint.Style.STROKE);
+                      borderPaint.setStrokeWidth(dpLocal(1f));
+                      borderPaint.setColor(borderColor);
 
-                      loadUrl(
-                          "file:///android_asset/mask1_enfriar.html"
+                      maskPaint.setFilterBitmap(false);
+                      maskPaint.setAntiAlias(false);
+                      maskPaint.setXfermode(
+                          new PorterDuffXfermode(
+                              PorterDuff.Mode.DST_IN
+                          )
                       );
+
+                      try (InputStream in =
+                          context.getAssets().open(
+                              "nature-sprite.png"
+                          )
+                      ) {
+                          sprite =
+                              BitmapFactory.decodeStream(in);
+                      } catch (IOException ignored) {
+                          sprite = null;
+                      }
                   }
 
-                  public void setNativeClick(Runnable click) {
-                      nativeClick = click;
-                  }
-
+                  /**
+                   * Estado confirmado por el ESP32.
+                   */
                   public void setMaskActive(boolean active) {
-                      if (desiredActive == active) {
-                          return;
-                      }
-
                       desiredActive = active;
-                      applyDesiredState(true);
+                      animateToFrame(
+                          active ? LAST_FRAME : 0
+                      );
                   }
 
-                  private void applyDesiredState(
-                      boolean animate
+                  /**
+                   * Arranca inmediatamente al tocar ENFRIAR,
+                   * igual que el demo HTML aprobado.
+                   */
+                  public void previewActivate() {
+                      desiredActive = true;
+                      animateToFrame(LAST_FRAME);
+                  }
+
+                  private void animateToFrame(
+                      int targetFrame
                   ) {
-                      if (!pageReady) {
+                      targetFrame = Math.max(
+                          0,
+                          Math.min(LAST_FRAME, targetFrame)
+                      );
+
+                      if (
+                          currentFrame == targetFrame &&
+                          (
+                              frameAnimator == null ||
+                              !frameAnimator.isRunning()
+                          )
+                      ) {
+                          invalidate();
                           return;
                       }
 
-                      String js =
-                          "window.setMaskActive(" +
-                          (desiredActive ? "true" : "false") +
-                          "," +
-                          (animate ? "true" : "false") +
-                          ");";
+                      if (frameAnimator != null) {
+                          frameAnimator.cancel();
+                      }
 
-                      evaluateJavascript(js, null);
+                      final int startFrame = currentFrame;
+                      final int endFrame = targetFrame;
+                      final int distance =
+                          Math.abs(endFrame - startFrame);
+
+                      long duration = Math.max(
+                          1L,
+                          Math.round(
+                              FULL_DURATION_MS *
+                              (
+                                  distance /
+                                  (float) LAST_FRAME
+                              )
+                          )
+                      );
+
+                      frameAnimator =
+                          ValueAnimator.ofFloat(0f, 1f);
+
+                      frameAnimator.setDuration(duration);
+                      frameAnimator.setInterpolator(
+                          new LinearInterpolator()
+                      );
+
+                      frameAnimator.addUpdateListener(
+                          animator -> {
+                              float fraction =
+                                  (Float)
+                                  animator.getAnimatedValue();
+
+                              int stepped =
+                                  Math.round(
+                                      startFrame +
+                                      (
+                                          endFrame -
+                                          startFrame
+                                      ) * fraction
+                                  );
+
+                              if (stepped != currentFrame) {
+                                  currentFrame = stepped;
+                                  invalidate();
+                              }
+                          }
+                      );
+
+                      frameAnimator.addListener(
+                          new AnimatorListenerAdapter() {
+                              @Override
+                              public void onAnimationEnd(
+                                  Animator animation
+                              ) {
+                                  currentFrame = endFrame;
+                                  invalidate();
+                              }
+                          }
+                      );
+
+                      frameAnimator.start();
                   }
 
-                  private final class MaskBridge {
-                      @JavascriptInterface
-                      public void onTap() {
-                          post(() -> {
-                              if (
-                                  isEnabled() &&
-                                  nativeClick != null
-                              ) {
-                                  performHapticFeedback(
-                                      HapticFeedbackConstants.CLOCK_TICK
+                  @Override
+                  protected void onDraw(Canvas canvas) {
+                      super.onDraw(canvas);
+
+                      float w = getWidth();
+                      float h = getHeight();
+
+                      if (w <= 0f || h <= 0f) {
+                          return;
+                      }
+
+                      /*
+                       * El demo aprobado usa border-radius: 8px.
+                       */
+                      float radius = dpLocal(8f);
+
+                      viewRect.set(0f, 0f, w, h);
+
+                      int outerSave = canvas.save();
+
+                      clipPath.reset();
+                      clipPath.addRoundRect(
+                          viewRect,
+                          radius,
+                          radius,
+                          Path.Direction.CW
+                      );
+                      canvas.clipPath(clipPath);
+
+                      /*
+                       * CAPA DE ABAJO:
+                       * azul + texto blanco, lo que MASK1 revela.
+                       */
+                      basePaint.setStyle(Paint.Style.FILL);
+                      basePaint.setColor(activeBlue);
+                      canvas.drawRect(
+                          0f,
+                          0f,
+                          w,
+                          h,
+                          basePaint
+                      );
+
+                      drawCenteredText(
+                          canvas,
+                          "ENFRIAR",
+                          Color.WHITE,
+                          w,
+                          h
+                      );
+
+                      /*
+                       * CAPA SUPERIOR:
+                       * fondo #F5F6F8 + texto #5C7088.
+                       *
+                       * Se enmascara con EL CUADRO REAL del PNG.
+                       * Esto equivale al <button> CSS que está arriba
+                       * del <span class="mas"> en el demo.
+                       */
+                      if (
+                          sprite != null &&
+                          !sprite.isRecycled()
+                      ) {
+                          int layer =
+                              canvas.saveLayer(
+                                  0f,
+                                  0f,
+                                  w,
+                                  h,
+                                  null
+                              );
+
+                          topPaint.setStyle(Paint.Style.FILL);
+                          topPaint.setColor(idleBackground);
+                          canvas.drawRect(
+                              0f,
+                              0f,
+                              w,
+                              h,
+                              topPaint
+                          );
+
+                          drawCenteredText(
+                              canvas,
+                              "ENFRIAR",
+                              idleText,
+                              w,
+                              h
+                          );
+
+                          int frameWidth =
+                              sprite.getWidth() /
+                              FRAME_COUNT;
+
+                          /*
+                           * Protección por si el PNG cambia o una descarga
+                           * quedara corrupta.
+                           */
+                          if (frameWidth > 0) {
+                              int frame =
+                                  Math.max(
+                                      0,
+                                      Math.min(
+                                          LAST_FRAME,
+                                          currentFrame
+                                      )
                                   );
-                                  nativeClick.run();
-                              }
-                          });
+
+                              int left =
+                                  frame * frameWidth;
+
+                              int right =
+                                  frame == LAST_FRAME
+                                      ? sprite.getWidth()
+                                      : left + frameWidth;
+
+                              sourceRect.set(
+                                  left,
+                                  0,
+                                  right,
+                                  sprite.getHeight()
+                              );
+
+                              destRect.set(
+                                  0f,
+                                  0f,
+                                  w,
+                                  h
+                              );
+
+                              canvas.drawBitmap(
+                                  sprite,
+                                  sourceRect,
+                                  destRect,
+                                  maskPaint
+                              );
+                          }
+
+                          canvas.restoreToCount(layer);
+
+                      } else {
+                          /*
+                           * Fallback seguro: si faltara el asset,
+                           * NO dejamos ENFRIAR azul incorrectamente.
+                           */
+                          if (!desiredActive) {
+                              topPaint.setStyle(
+                                  Paint.Style.FILL
+                              );
+                              topPaint.setColor(
+                                  idleBackground
+                              );
+                              canvas.drawRect(
+                                  0f,
+                                  0f,
+                                  w,
+                                  h,
+                                  topPaint
+                              );
+                              drawCenteredText(
+                                  canvas,
+                                  "ENFRIAR",
+                                  idleText,
+                                  w,
+                                  h
+                              );
+                          }
+                      }
+
+                      canvas.restoreToCount(outerSave);
+
+                      /*
+                       * Borde final igual al demo adaptado.
+                       */
+                      canvas.drawRoundRect(
+                          viewRect,
+                          radius,
+                          radius,
+                          borderPaint
+                      );
+                  }
+
+                  private void drawCenteredText(
+                      Canvas canvas,
+                      String text,
+                      int color,
+                      float w,
+                      float h
+                  ) {
+                      textPaint.setColor(color);
+
+                      Paint.FontMetrics fm =
+                          textPaint.getFontMetrics();
+
+                      float baseline =
+                          (h / 2f) -
+                          (
+                              fm.ascent +
+                              fm.descent
+                          ) / 2f;
+
+                      canvas.drawText(
+                          text,
+                          w / 2f,
+                          baseline,
+                          textPaint
+                      );
+                  }
+
+                  private float dpLocal(float value) {
+                      return
+                          value *
+                          getResources()
+                              .getDisplayMetrics()
+                              .density;
+                  }
+
+                  @Override
+                  protected void onDetachedFromWindow() {
+                      super.onDetachedFromWindow();
+
+                      if (frameAnimator != null) {
+                          frameAnimator.cancel();
+                      }
+
+                      if (
+                          sprite != null &&
+                          !sprite.isRecycled()
+                      ) {
+                          sprite.recycle();
                       }
                   }
               }
@@ -3534,7 +3690,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.27_MASK1_EXACTO_Enfriar.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.28_MASK1_SPRITE_NATIVO.apk
 
       - name: Verify APK signature
         env:
@@ -3544,23 +3700,23 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.27_MASK1_EXACTO_Enfriar.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.28_MASK1_SPRITE_NATIVO.apk
 
       - name: Generate in-app update manifest
         shell: bash
         run: |
           set -euo pipefail
 
-          APK="AireSmart_Remote_v1.0.27_MASK1_EXACTO_Enfriar.apk"
+          APK="AireSmart_Remote_v1.0.28_MASK1_SPRITE_NATIVO.apk"
           SHA256="$(sha256sum "$APK" | awk '{print $1}')"
 
           cat > latest.json <<EOF
           {
-            "versionCode": 28,
-            "versionName": "1.0.27",
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.27/${APK}",
+            "versionCode": 29,
+            "versionName": "1.0.28",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.28/${APK}",
             "sha256": "${SHA256}",
-            "notes": "MASK1 exacto aprobado en demo aplicado únicamente al botón ENFRIAR."
+            "notes": "MASK1 original reproducido cuadro por cuadro con el sprite real en ENFRIAR."
           }
           EOF
 
@@ -3571,8 +3727,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="v1.0.27"
-          APK="AireSmart_Remote_v1.0.27_MASK1_EXACTO_Enfriar.apk"
+          TAG="v1.0.28"
+          APK="AireSmart_Remote_v1.0.28_MASK1_SPRITE_NATIVO.apk"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload \
@@ -3585,7 +3741,7 @@ jobs:
               "$TAG" \
               "$APK" \
               latest.json \
-              --title "AireSmart Remote v1.0.27" \
+              --title "AireSmart Remote v1.0.28" \
               --notes "Mismo AireSmart Remote, con efecto Flush visual únicamente en ENFRIAR."
           fi
 
@@ -3597,7 +3753,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.27-MASK1-EXACTO-Enfriar
+          name: AireSmart-Remote-v1.0.28-MASK1-SPRITE-NATIVO
           path: |
-            AireSmart_Remote_v1.0.27_MASK1_EXACTO_Enfriar.apk
+            AireSmart_Remote_v1.0.28_MASK1_SPRITE_NATIVO.apk
             latest.json
