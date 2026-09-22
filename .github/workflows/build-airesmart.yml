@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 28
-                  versionName "1.0.26"
+                  versionCode 29
+                  versionName "1.0.26.1"
               }
 
               signingConfigs {
@@ -299,7 +299,7 @@ jobs:
             </section>
             <section class="card"><div class="head"><b>Eventos</b><span id="eventCount">0 eventos</span></div><div class="filters"><button class="chip active" data-filter="all">Todos</button><button class="chip" data-filter="cmd">Órdenes</button><button class="chip" data-filter="mqtt">MQTT</button><button class="chip" data-filter="ack">ACK</button><button class="chip" data-filter="state">Estado</button><button class="chip" data-filter="error">Errores</button></div><div class="timeline" id="timeline"><div class="empty">Cargando…</div></div></section>
             <section class="card"><div class="head"><b>Acciones</b><span>diagnóstico</span></div><div class="actions"><button class="btn primary" id="refreshBtn">Actualizar</button><button class="btn" id="copyBtn">Copiar diagnóstico</button><button class="btn" id="exportBtn">Exportar registro</button><button class="btn danger" id="clearBtn">Borrar historial</button></div></section>
-            <div class="footer">AireSmart v1.0.26 • Visual Engine</div>
+            <div class="footer">AireSmart v1.0.26.1 • Visual Engine</div>
           </div><script src="ui.js"></script><script src="bridge.js"></script></body></html>
           EOF
 
@@ -634,7 +634,7 @@ jobs:
                   super.onCreate(savedInstanceState);
 
                   prefs = getSharedPreferences("airesmart", MODE_PRIVATE);
-                  BlackBoxLogger.log(this, "app", "info", "Aplicación iniciada", "AireSmart v1.0.26", -1);
+                  BlackBoxLogger.log(this, "app", "info", "Aplicación iniciada", "AireSmart v1.0.26.1", -1);
                   host = prefs.getString("host", host);
                   port = prefs.getInt("port", port);
                   username = prefs.getString("username", username);
@@ -1439,7 +1439,7 @@ jobs:
                   up.topMargin = dp(14);
                   root.addView(updateCard, up);
 
-                  TextView version = text("AireSmart Remote v1.0.26", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.26.1", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -1448,7 +1448,39 @@ jobs:
                   return scroll;
               }
 
+              private long getInstalledVersionCode() {
+                  try {
+                      android.content.pm.PackageInfo info =
+                          getPackageManager().getPackageInfo(
+                              getPackageName(),
+                              0
+                          );
+
+                      if (
+                          android.os.Build.VERSION.SDK_INT >=
+                          android.os.Build.VERSION_CODES.P
+                      ) {
+                          return info.getLongVersionCode();
+                      }
+
+                      return info.versionCode;
+
+                  } catch (Exception ignored) {
+                      return 0L;
+                  }
+              }
+
+              private void hideUpdateCard() {
+                  runOnUiThread(() -> {
+                      if (updateCard != null) {
+                          updateCard.setVisibility(View.GONE);
+                      }
+                  });
+              }
+
               private void checkForUpdates() {
+                  hideUpdateCard();
+
                   io.execute(() -> {
                       try {
                           String raw = fetchHttpsText(
@@ -1488,12 +1520,27 @@ jobs:
                                   ""
                               ).trim();
 
+                          long installedCode =
+                              getInstalledVersionCode();
+
                           if (
-                              latestCode <= 25 ||
+                              latestCode <= 0 ||
                               latestName.isEmpty() ||
                               apkUrl.isEmpty() ||
                               sha256.length() != 64
                           ) {
+                              hideUpdateCard();
+                              return;
+                          }
+
+                          if (
+                              installedCode > 0 &&
+                              latestCode <= installedCode
+                          ) {
+                              availableUpdateVersion = "";
+                              availableUpdateApkUrl = "";
+                              availableUpdateSha256 = "";
+                              hideUpdateCard();
                               return;
                           }
 
@@ -3621,7 +3668,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.26_Visual_Engine.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.26.1_Visual_Engine.apk
 
       - name: Verify APK signature
         env:
@@ -3631,21 +3678,21 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.26_Visual_Engine.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.26.1_Visual_Engine.apk
 
       - name: Generate in-app update manifest
         shell: bash
         run: |
           set -euo pipefail
 
-          APK="AireSmart_Remote_v1.0.26_Visual_Engine.apk"
+          APK="AireSmart_Remote_v1.0.26.1_Visual_Engine.apk"
           SHA256="$(sha256sum "$APK" | awk '{print $1}')"
 
           cat > latest.json <<EOF
           {
-            "versionCode": 28,
-            "versionName": "1.0.26",
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.26/${APK}",
+            "versionCode": 29,
+            "versionName": "1.0.26.1",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.26.1/${APK}",
             "sha256": "${SHA256}",
             "notes": "Visual Engine y Caja Negra WebView con diagnóstico MQTT/ACK."
           }
@@ -3658,8 +3705,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="v1.0.26"
-          APK="AireSmart_Remote_v1.0.26_Visual_Engine.apk"
+          TAG="v1.0.26.1"
+          APK="AireSmart_Remote_v1.0.26.1_Visual_Engine.apk"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload \
@@ -3672,7 +3719,7 @@ jobs:
               "$TAG" \
               "$APK" \
               latest.json \
-              --title "AireSmart Remote v1.0.26" \
+              --title "AireSmart Remote v1.0.26.1" \
               --notes "AireSmart Visual Engine + Caja Negra WebView con diagnóstico persistente."
           fi
 
@@ -3687,7 +3734,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.26-Visual-Engine
+          name: AireSmart-Remote-v1.0.26.1-Visual-Engine
           path: |
-            AireSmart_Remote_v1.0.26_Visual_Engine.apk
+            AireSmart_Remote_v1.0.26.1_Visual_Engine.apk
             latest.json
