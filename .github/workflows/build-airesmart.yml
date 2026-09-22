@@ -69,6 +69,7 @@ jobs:
           mkdir -p app/src/main/java/com/airesmart/remote
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/assets/airesmart
 
           cat > settings.gradle <<'EOF'
           pluginManagement {
@@ -105,8 +106,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 26
-                  versionName "1.0.25"
+                  versionCode 28
+                  versionName "1.0.26"
               }
 
               signingConfigs {
@@ -174,6 +175,7 @@ jobs:
                   android:roundIcon="@drawable/airesmart_app_icon"
                   android:usesCleartextTraffic="false"
                   android:theme="@style/AppTheme">
+                  <activity android:name=".BlackBoxActivity" android:exported="false" />
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -182,6 +184,300 @@ jobs:
                   </activity>
               </application>
           </manifest>
+          EOF
+
+          cat > app/src/main/assets/airesmart/theme.css <<'EOF'
+          /* AireSmart Visual Engine 1.0 */
+          :root{
+            --bg1:#f4f5f6;--bg2:#e5e8eb;--panel:rgba(255,255,255,.58);
+            --panel2:rgba(255,255,255,.74);--stroke:rgba(255,255,255,.80);
+            --text:#1e2328;--muted:#737b84;--green:#35d98a;--blue:#4aa8ff;
+            --orange:#ff9d3a;--red:#ff5e63;--shadow:0 18px 48px rgba(31,38,45,.12);
+            --blur:22px;--anim:1;
+          }
+          *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+          html,body{margin:0;min-height:100%;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:var(--text)}
+          body{background:radial-gradient(circle at 10% 0%,rgba(255,255,255,.94),transparent 28%),radial-gradient(circle at 92% 14%,rgba(255,255,255,.62),transparent 25%),linear-gradient(180deg,var(--bg1),var(--bg2));}
+          .app{width:min(490px,100%);margin:0 auto;padding:18px 16px 34px;min-height:100vh}
+          .top{display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin-bottom:14px}
+          .iconBtn{width:42px;height:42px;border:0;border-radius:15px;background:rgba(255,255,255,.60);box-shadow:0 8px 22px rgba(30,35,40,.07);font-size:22px;color:#252a30}
+          .titleWrap{text-align:center}.title{font-weight:900;font-size:21px;letter-spacing:-.35px}.sub{font-size:11px;color:var(--muted);margin-top:2px}
+          .card{background:var(--panel);border:1px solid var(--stroke);border-radius:27px;box-shadow:var(--shadow);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));padding:16px;margin-bottom:14px}
+          .head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.head b{font-size:15px}.head span{font-size:11px;color:var(--muted)}
+          .status{display:inline-flex;align-items:center;gap:9px;padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.68);font-size:12px;font-weight:850}
+          .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:15px}.metric{background:rgba(255,255,255,.52);border:1px solid rgba(255,255,255,.74);border-radius:18px;padding:12px 7px;text-align:center}.metric b{display:block;font-size:20px}.metric span{font-size:10px;color:var(--muted)}
+          .summary{display:flex;gap:11px;align-items:center;background:rgba(255,255,255,.47);border-radius:18px;padding:12px;margin-top:11px}.summaryIcon{width:39px;height:39px;border-radius:14px;display:grid;place-items:center;background:rgba(74,168,255,.12);font-size:18px}.summaryText b{display:block;font-size:12px}.summaryText p{font-size:10px;color:var(--muted);margin:3px 0 0;line-height:1.4}
+          .filters{display:flex;gap:8px;overflow:auto;padding:1px 0 3px;scrollbar-width:none}.filters::-webkit-scrollbar{display:none}.chip{border:1px solid rgba(25,30,35,.08);background:rgba(255,255,255,.55);padding:8px 11px;border-radius:999px;font-size:11px;font-weight:800;white-space:nowrap}.chip.active{background:#20252b;color:#fff;border-color:#20252b}
+          .timeline{margin-top:9px}.event{display:grid;grid-template-columns:58px 18px 1fr;gap:8px;align-items:start;padding:12px 0;border-top:1px solid rgba(25,30,35,.08)}.event:first-child{border-top:0}.time{font-size:10px;color:var(--muted);padding-top:2px;font-variant-numeric:tabular-nums}.event .signal{margin-top:1px}.eventMain{font-size:12.5px;font-weight:820;line-height:1.3}.eventSub{font-size:10.5px;color:var(--muted);line-height:1.4;margin-top:3px}.latency{display:inline-block;margin-top:5px;padding:4px 7px;border-radius:999px;background:rgba(30,35,40,.07);font-size:9.5px;font-weight:850}
+          .empty{text-align:center;padding:25px 12px;color:var(--muted);font-size:12px}.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.btn{border:0;border-radius:17px;padding:13px 10px;background:rgba(255,255,255,.72);font-size:12px;font-weight:850;box-shadow:0 8px 18px rgba(30,35,40,.06);color:#252a30}.btn.primary{background:#20252b;color:#fff}.btn.danger{color:#cf3439}.footer{text-align:center;color:#8a9198;font-size:9.5px;margin-top:14px}
+          .lite{--blur:8px;--shadow:0 10px 25px rgba(31,38,45,.09)}
+          @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+          EOF
+
+          cat > app/src/main/assets/airesmart/effects.css <<'EOF'
+          /* AireSmart reusable state effects */
+          .signal{position:relative;width:13px;height:13px;border-radius:50%;flex:0 0 13px}
+          .signal::before,.signal::after{content:"";position:absolute;inset:50% auto auto 50%;width:100%;height:100%;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none}
+          .signal.ok{background:var(--green);box-shadow:0 0 12px rgba(53,217,138,.82);animation:coreBreath calc(1.8s / var(--anim)) ease-in-out infinite}.signal.ok::before{background:rgba(53,217,138,.25);animation:halo calc(1.8s / var(--anim)) ease-out infinite}
+          .signal.info{background:var(--blue);box-shadow:0 0 12px rgba(74,168,255,.84)}.signal.info::before,.signal.info::after{border:1.5px solid rgba(74,168,255,.58);animation:radar calc(1.7s / var(--anim)) ease-out infinite}.signal.info::after{animation-delay:calc(.8s / var(--anim))}
+          .signal.warn{background:var(--orange);box-shadow:0 0 12px rgba(255,157,58,.82);animation:warnPulse calc(1.2s / var(--anim)) ease-in-out infinite}.signal.warn::before{background:rgba(255,157,58,.24);animation:halo calc(1.2s / var(--anim)) ease-out infinite}
+          .signal.bad{background:var(--red);box-shadow:0 0 13px rgba(255,94,99,.85);animation:badBeat calc(1.35s / var(--anim)) ease-in-out infinite}.signal.bad::before{border:1.5px solid rgba(255,94,99,.58);animation:radar calc(1.35s / var(--anim)) ease-out infinite}
+          @keyframes coreBreath{0%,100%{transform:scale(.94)}50%{transform:scale(1.18)}}
+          @keyframes halo{0%{transform:translate(-50%,-50%) scale(.9);opacity:.72}100%{transform:translate(-50%,-50%) scale(2.45);opacity:0}}
+          @keyframes radar{0%{transform:translate(-50%,-50%) scale(.8);opacity:.82}100%{transform:translate(-50%,-50%) scale(2.8);opacity:0}}
+          @keyframes warnPulse{0%,100%{transform:scale(.92)}45%{transform:scale(1.22)}65%{transform:scale(1.04)}}
+          @keyframes badBeat{0%,100%{transform:scale(.92)}18%{transform:scale(1.26)}32%{transform:scale(.98)}48%{transform:scale(1.17)}65%{transform:scale(.96)}}
+          .lite .signal{box-shadow:0 0 7px currentColor}.lite .signal::after{display:none}
+          EOF
+
+          cat > app/src/main/assets/airesmart/ui.js <<'EOF'
+          (()=>{
+            let frames=0,start=performance.now(),sampled=false;
+            function frame(t){
+              frames++;
+              if(!sampled && t-start>=2600){
+                const fps=Math.round(frames*1000/(t-start));
+                if(fps<48) document.body.classList.add('lite');
+                sampled=true;
+                const m=document.getElementById('visualMode');
+                if(m) m.textContent=document.body.classList.contains('lite')?'Visual ligero':'Visual premium';
+              }
+              if(!sampled) requestAnimationFrame(frame);
+            }
+            requestAnimationFrame(frame);
+            window.AireSmartUI={
+              setLite(v){document.body.classList.toggle('lite',!!v)},
+              haptic(){try{if(window.AireSmartNative)window.AireSmartNative.haptic()}catch(e){}}
+            };
+          })();
+          EOF
+
+          cat > app/src/main/assets/airesmart/bridge.js <<'EOF'
+          (()=>{
+            let snapshot={connected:false,events:[]};
+            let filter='all';
+            const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            const fmtTime=ts=>{try{return new Date(ts).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})}catch(e){return '--:--:--'}};
+            const levelClass=e=>e.level==='error'?'bad':e.level==='warn'?'warn':e.level==='ok'?'ok':'info';
+            function filtered(){return (snapshot.events||[]).filter(e=>filter==='all'||e.type===filter||(filter==='error'&&e.level==='error'));}
+            function render(){
+              const conn=document.getElementById('connText'), dot=document.getElementById('connDot');
+              conn.textContent=snapshot.connected?'Conectado':'Sin conexión'; dot.className='signal '+(snapshot.connected?'ok':'bad');
+              document.getElementById('ackCount').textContent=snapshot.ackCount||0;
+              document.getElementById('errorCount').textContent=snapshot.errorCount||0;
+              document.getElementById('avgLatency').textContent=(snapshot.avgLatencyMs||0);
+              const list=filtered(); document.getElementById('eventCount').textContent=list.length+' evento'+(list.length===1?'':'s');
+              const root=document.getElementById('timeline');
+              if(!list.length){root.innerHTML='<div class="empty">Todavía no hay eventos en este filtro.</div>';return}
+              root.innerHTML=list.slice().reverse().map(e=>`<div class="event"><div class="time">${fmtTime(e.ts)}</div><span class="signal ${levelClass(e)}"></span><div><div class="eventMain">${esc(e.title)}</div><div class="eventSub">${esc(e.detail)}</div>${e.latencyMs>=0?`<span class="latency">${esc(e.latencyMs)} ms</span>`:''}</div></div>`).join('');
+              const latest=(snapshot.events||[]).slice().reverse().find(e=>e.level==='error'||e.level==='warn');
+              document.getElementById('summaryTitle').textContent=latest?latest.title:(snapshot.connected?'Sistema estable':'Esperando conexión');
+              document.getElementById('summaryDetail').textContent=latest?latest.detail:'La Caja Negra está registrando eventos reales de AireSmart.';
+            }
+            window.AireSmartBridge={refresh(data){if(typeof data==='string'){try{data=JSON.parse(data)}catch(e){return}} snapshot=data||snapshot;render()}};
+            document.addEventListener('DOMContentLoaded',()=>{
+              document.querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>{document.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));ch.classList.add('active');filter=ch.dataset.filter;render()});
+              document.getElementById('backBtn').onclick=()=>{try{AireSmartNative.close()}catch(e){history.back()}};
+              document.getElementById('refreshBtn').onclick=()=>{try{AireSmartNative.refreshNow()}catch(e){}};
+              document.getElementById('copyBtn').onclick=()=>{try{AireSmartNative.copyDiagnostics()}catch(e){}};
+              document.getElementById('exportBtn').onclick=()=>{try{AireSmartNative.shareDiagnostics()}catch(e){}};
+              document.getElementById('clearBtn').onclick=()=>{if(confirm('¿Borrar el historial de Caja Negra?')){try{AireSmartNative.clearHistory()}catch(e){}}};
+              try{AireSmartNative.refreshNow()}catch(e){}
+            });
+          })();
+          EOF
+
+          cat > app/src/main/assets/airesmart/caja_negra.html <<'EOF'
+          <!doctype html>
+          <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>AireSmart • Caja Negra</title><link rel="stylesheet" href="theme.css"><link rel="stylesheet" href="effects.css"></head>
+          <body><div class="app">
+            <div class="top"><button class="iconBtn" id="backBtn">‹</button><div class="titleWrap"><div class="title">Caja Negra</div><div class="sub">AireSmart • diagnóstico local</div></div><div></div></div>
+            <section class="card">
+              <div class="head"><div class="status"><span class="signal info" id="connDot"></span><span id="connText">Sincronizando</span></div><span id="visualMode">Visual premium</span></div>
+              <div class="metrics"><div class="metric"><b id="ackCount">0</b><span>ACK correctos</span></div><div class="metric"><b id="errorCount">0</b><span>Fallos</span></div><div class="metric"><b id="avgLatency">0</b><span>ms promedio</span></div></div>
+              <div class="summary"><div class="summaryIcon">◉</div><div class="summaryText"><b id="summaryTitle">Preparando diagnóstico</b><p id="summaryDetail">La Caja Negra está cargando el historial.</p></div></div>
+            </section>
+            <section class="card"><div class="head"><b>Eventos</b><span id="eventCount">0 eventos</span></div><div class="filters"><button class="chip active" data-filter="all">Todos</button><button class="chip" data-filter="cmd">Órdenes</button><button class="chip" data-filter="mqtt">MQTT</button><button class="chip" data-filter="ack">ACK</button><button class="chip" data-filter="state">Estado</button><button class="chip" data-filter="error">Errores</button></div><div class="timeline" id="timeline"><div class="empty">Cargando…</div></div></section>
+            <section class="card"><div class="head"><b>Acciones</b><span>diagnóstico</span></div><div class="actions"><button class="btn primary" id="refreshBtn">Actualizar</button><button class="btn" id="copyBtn">Copiar diagnóstico</button><button class="btn" id="exportBtn">Exportar registro</button><button class="btn danger" id="clearBtn">Borrar historial</button></div></section>
+            <div class="footer">AireSmart v1.0.26 • Visual Engine</div>
+          </div><script src="ui.js"></script><script src="bridge.js"></script></body></html>
+          EOF
+
+          cat > app/src/main/java/com/airesmart/remote/BlackBoxLogger.java <<'EOF'
+          package com.airesmart.remote;
+
+          import android.content.Context;
+          import android.content.SharedPreferences;
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+
+          public final class BlackBoxLogger {
+              private static final String PREFS = "airesmart_blackbox";
+              private static final String KEY_EVENTS = "events";
+              private static final String KEY_CONNECTED = "connected";
+              private static final int MAX_EVENTS = 250;
+
+              private BlackBoxLogger() {}
+
+              public static synchronized void setConnected(Context context, boolean connected) {
+                  context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                      .edit().putBoolean(KEY_CONNECTED, connected).apply();
+              }
+
+              public static synchronized void log(Context context, String type, String level, String title, String detail, long latencyMs) {
+                  try {
+                      SharedPreferences p = context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+                      JSONArray old = new JSONArray(p.getString(KEY_EVENTS, "[]"));
+                      JSONArray next = new JSONArray();
+                      int start = Math.max(0, old.length() - (MAX_EVENTS - 1));
+                      for (int i = start; i < old.length(); i++) next.put(old.get(i));
+                      JSONObject e = new JSONObject();
+                      e.put("ts", System.currentTimeMillis());
+                      e.put("type", clean(type));
+                      e.put("level", clean(level));
+                      e.put("title", clean(title));
+                      e.put("detail", clean(detail));
+                      e.put("latencyMs", latencyMs);
+                      next.put(e);
+                      p.edit().putString(KEY_EVENTS, next.toString()).apply();
+                  } catch (Exception ignored) {}
+              }
+
+              public static synchronized String snapshot(Context context) {
+                  try {
+                      SharedPreferences p = context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+                      JSONArray events = new JSONArray(p.getString(KEY_EVENTS, "[]"));
+                      int ack = 0, errors = 0, latencyCount = 0;
+                      long latencySum = 0;
+                      for (int i = 0; i < events.length(); i++) {
+                          JSONObject e = events.optJSONObject(i);
+                          if (e == null) continue;
+                          if ("ack".equals(e.optString("type")) && "ok".equals(e.optString("level"))) ack++;
+                          if ("error".equals(e.optString("level"))) errors++;
+                          long ms = e.optLong("latencyMs", -1);
+                          if (ms >= 0 && "ack".equals(e.optString("type"))) { latencySum += ms; latencyCount++; }
+                      }
+                      JSONObject out = new JSONObject();
+                      out.put("connected", p.getBoolean(KEY_CONNECTED, false));
+                      out.put("ackCount", ack);
+                      out.put("errorCount", errors);
+                      out.put("avgLatencyMs", latencyCount == 0 ? 0 : Math.round((double)latencySum / latencyCount));
+                      out.put("events", events);
+                      return out.toString();
+                  } catch (Exception e) {
+                      return "{\"connected\":false,\"ackCount\":0,\"errorCount\":1,\"avgLatencyMs\":0,\"events\":[]}";
+                  }
+              }
+
+              public static synchronized String text(Context context) {
+                  try {
+                      JSONObject snap = new JSONObject(snapshot(context));
+                      JSONArray events = snap.optJSONArray("events");
+                      StringBuilder b = new StringBuilder("AireSmart Caja Negra\\n");
+                      b.append("Conectado: ").append(snap.optBoolean("connected")).append("\\n\\n");
+                      if (events != null) for (int i = 0; i < events.length(); i++) {
+                          JSONObject e = events.optJSONObject(i); if (e == null) continue;
+                          b.append(e.optLong("ts")).append(" | ").append(e.optString("type")).append(" | ")
+                           .append(e.optString("title")).append(" | ").append(e.optString("detail"));
+                          long ms = e.optLong("latencyMs", -1); if (ms >= 0) b.append(" | ").append(ms).append(" ms");
+                          b.append("\\n");
+                      }
+                      return b.toString();
+                  } catch (Exception e) { return "AireSmart Caja Negra"; }
+              }
+
+              public static synchronized void clear(Context context) {
+                  context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                      .edit().putString(KEY_EVENTS, "[]").apply();
+              }
+
+              private static String clean(String s) {
+                  if (s == null) return "";
+                  String x = s.replace('\n',' ').replace('\r',' ').trim();
+                  if (x.length() > 220) x = x.substring(0, 220);
+                  return x;
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/airesmart/remote/BlackBoxActivity.java <<'EOF'
+          package com.airesmart.remote;
+
+          import android.app.Activity;
+          import android.content.ClipData;
+          import android.content.ClipboardManager;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.view.HapticFeedbackConstants;
+          import android.view.View;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.Toast;
+          import org.json.JSONObject;
+
+          public class BlackBoxActivity extends Activity {
+              private WebView web;
+              private final Handler handler = new Handler(Looper.getMainLooper());
+              private final Runnable refreshLoop = new Runnable() {
+                  @Override public void run() { pushSnapshot(); handler.postDelayed(this, 900); }
+              };
+
+              @Override protected void onCreate(Bundle state) {
+                  super.onCreate(state);
+                  web = new WebView(this);
+                  web.setBackgroundColor(0xFFE9ECEF);
+                  web.getSettings().setJavaScriptEnabled(true);
+                  web.getSettings().setDomStorageEnabled(false);
+                  web.getSettings().setAllowFileAccess(true);
+                  web.getSettings().setAllowContentAccess(false);
+                  web.setWebViewClient(new WebViewClient());
+                  web.setWebChromeClient(new WebChromeClient());
+                  web.addJavascriptInterface(new NativeBridge(), "AireSmartNative");
+                  setContentView(web);
+                  web.loadUrl("file:///android_asset/airesmart/caja_negra.html");
+              }
+
+              @Override protected void onResume() { super.onResume(); handler.post(refreshLoop); }
+              @Override protected void onPause() { handler.removeCallbacks(refreshLoop); super.onPause(); }
+              @Override protected void onDestroy() { handler.removeCallbacksAndMessages(null); if (web != null) web.destroy(); super.onDestroy(); }
+
+              private void pushSnapshot() {
+                  if (web == null) return;
+                  String json = BlackBoxLogger.snapshot(this);
+                  String quoted = JSONObject.quote(json);
+                  web.evaluateJavascript("window.AireSmartBridge&&window.AireSmartBridge.refresh(JSON.parse(" + quoted + "))", null);
+              }
+
+              private class NativeBridge {
+                  @JavascriptInterface public void close() { runOnUiThread(() -> finish()); }
+                  @JavascriptInterface public void refreshNow() { runOnUiThread(() -> { pushSnapshot(); haptic(); }); }
+                  @JavascriptInterface public void clearHistory() { BlackBoxLogger.clear(BlackBoxActivity.this); runOnUiThread(() -> { pushSnapshot(); Toast.makeText(BlackBoxActivity.this,"Historial borrado",Toast.LENGTH_SHORT).show(); }); }
+                  @JavascriptInterface public void copyDiagnostics() {
+                      String text = BlackBoxLogger.text(BlackBoxActivity.this);
+                      runOnUiThread(() -> {
+                          ClipboardManager cm = (ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
+                          cm.setPrimaryClip(ClipData.newPlainText("AireSmart Caja Negra", text));
+                          Toast.makeText(BlackBoxActivity.this,"Diagnóstico copiado",Toast.LENGTH_SHORT).show(); haptic();
+                      });
+                  }
+                  @JavascriptInterface public void shareDiagnostics() {
+                      String text = BlackBoxLogger.text(BlackBoxActivity.this);
+                      runOnUiThread(() -> {
+                          Intent i = new Intent(Intent.ACTION_SEND); i.setType("text/plain");
+                          i.putExtra(Intent.EXTRA_SUBJECT,"AireSmart Caja Negra"); i.putExtra(Intent.EXTRA_TEXT,text);
+                          startActivity(Intent.createChooser(i,"Exportar diagnóstico"));
+                      });
+                  }
+                  @JavascriptInterface public void haptic() { runOnUiThread(BlackBoxActivity.this::haptic); }
+              }
+
+              private void haptic() { try { web.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); } catch (Exception ignored) {} }
+          }
           EOF
 
           cat > app/src/main/java/com/airesmart/remote/MainActivity.java <<'EOF'
@@ -196,8 +492,6 @@ jobs:
           import android.content.Context;
           import android.content.Intent;
           import android.content.SharedPreferences;
-          import android.content.ClipData;
-          import android.content.ClipboardManager;
           import android.graphics.Canvas;
           import android.graphics.Color;
           import android.graphics.Paint;
@@ -235,14 +529,9 @@ jobs:
           import org.eclipse.paho.client.mqttv3.MqttMessage;
           import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
           import org.json.JSONObject;
-          import org.json.JSONArray;
 
           import java.nio.charset.StandardCharsets;
           import java.util.UUID;
-          import java.util.ArrayList;
-          import java.util.Date;
-          import java.util.Locale;
-          import java.text.SimpleDateFormat;
           import java.util.concurrent.ExecutorService;
           import java.util.concurrent.Executors;
           import java.net.URL;
@@ -313,30 +602,15 @@ jobs:
               private String pendingAction = null;
               private String pendingValue = null;
               private long pendingSentAt = 0L;
-
-              private static final int BLACK_BOX_MAX_EVENTS = 200;
-              private static final String PREF_BLACK_BOX_LOG = "blackBoxLogV1";
-              private final Object blackBoxLock = new Object();
-              private final ArrayList<BlackBoxEvent> blackBoxEvents = new ArrayList<>();
-              private AlertDialog blackBoxDialog;
-              private LinearLayout blackBoxTimeline;
-              private TextView blackBoxAckCount;
-              private TextView blackBoxErrorCount;
-              private TextView blackBoxAvgLatency;
-              private TextView blackBoxEventCount;
-              private String blackBoxFilter = "all";
-              private String lastBlackBoxStateSignature = "";
+              private String lastLoggedState = "";
 
               private final Runnable ackTimeout = () -> {
                   if (pendingId != null) {
-                      long latency = pendingLatencyMs();
-                      String command = pendingCommandLabel();
-                      addBlackBoxEvent(
-                          "error",
-                          "ACK",
-                          "ACK no recibido",
-                          command + " · tiempo de espera agotado",
-                          latency > 0 ? latency : 8000L
+                      long latency = pendingSentAt > 0 ? System.currentTimeMillis() - pendingSentAt : -1;
+                      BlackBoxLogger.log(
+                          this, "ack", "error", "ACK no recibido",
+                          commandLabel(pendingAction, pendingValue) + " · tiempo de espera agotado",
+                          latency
                       );
                       showAck("SIN CONFIRMACIÓN · revisa conexión", false);
                       clearPendingCommand();
@@ -360,14 +634,7 @@ jobs:
                   super.onCreate(savedInstanceState);
 
                   prefs = getSharedPreferences("airesmart", MODE_PRIVATE);
-                  loadBlackBoxEvents();
-                  addBlackBoxEvent(
-                      "info",
-                      "APP",
-                      "Aplicación iniciada",
-                      "AireSmart Remote v1.0.25",
-                      -1L
-                  );
+                  BlackBoxLogger.log(this, "app", "info", "Aplicación iniciada", "AireSmart v1.0.26", -1);
                   host = prefs.getString("host", host);
                   port = prefs.getInt("port", port);
                   username = prefs.getString("username", username);
@@ -1114,52 +1381,15 @@ jobs:
                   root.addView(ackCard);
 
                   space(root, 12);
-
-                  LinearLayout blackBoxEntry = card();
-                  blackBoxEntry.setOrientation(LinearLayout.HORIZONTAL);
-                  blackBoxEntry.setGravity(Gravity.CENTER_VERTICAL);
-                  blackBoxEntry.setPadding(dp(16), dp(14), dp(16), dp(14));
-                  blackBoxEntry.setOnClickListener(v -> showBlackBox());
-                  addPressEffect(blackBoxEntry);
-
-                  SignalDotView blackBoxDot = new SignalDotView(this, "info");
-                  blackBoxEntry.addView(
-                      blackBoxDot,
-                      new LinearLayout.LayoutParams(dp(24), dp(24))
-                  );
-                  spaceHorizontal(blackBoxEntry, 12);
-
-                  LinearLayout blackBoxLabels = new LinearLayout(this);
-                  blackBoxLabels.setOrientation(LinearLayout.VERTICAL);
-                  TextView blackBoxTitle = text(
+                  Button blackBoxButton = button(
                       "CAJA NEGRA",
-                      13,
-                      Color.rgb(24,35,47),
-                      true
+                      Color.rgb(32,37,43)
                   );
-                  blackBoxTitle.setGravity(Gravity.START);
-                  TextView blackBoxSub = text(
-                      "Diagnóstico · MQTT · ACK · errores",
-                      10,
-                      Color.rgb(113,132,155),
-                      false
+                  blackBoxButton.setOnClickListener(v ->
+                      startActivity(new Intent(this, BlackBoxActivity.class))
                   );
-                  blackBoxSub.setGravity(Gravity.START);
-                  blackBoxLabels.addView(blackBoxTitle);
-                  blackBoxLabels.addView(blackBoxSub);
-                  blackBoxEntry.addView(
-                      blackBoxLabels,
-                      new LinearLayout.LayoutParams(0, -2, 1)
-                  );
-
-                  TextView blackBoxArrow = text(
-                      "›",
-                      25,
-                      Color.rgb(92,112,136),
-                      false
-                  );
-                  blackBoxEntry.addView(blackBoxArrow);
-                  root.addView(blackBoxEntry);
+                  addPressEffect(blackBoxButton);
+                  root.addView(blackBoxButton, lp(-1, 54));
 
                   updateCard = card();
                   updateCard.setVisibility(View.GONE);
@@ -1209,7 +1439,7 @@ jobs:
                   up.topMargin = dp(14);
                   root.addView(updateCard, up);
 
-                  TextView version = text("AireSmart Remote v1.0.25 · Caja Negra", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.26", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -1322,7 +1552,7 @@ jobs:
                       );
                       conn.setRequestProperty(
                           "User-Agent",
-                          "AireSmart-Android/" + "1.0.25"
+                          "AireSmart-Android/" + "1.0.24"
                       );
 
                       int code = conn.getResponseCode();
@@ -2220,13 +2450,7 @@ jobs:
               }
 
               private void connectMqtt() {
-                  addBlackBoxEvent(
-                      "info",
-                      "MQTT",
-                      "Conectando al broker",
-                      "Iniciando sesión segura MQTT",
-                      -1L
-                  );
+                  BlackBoxLogger.log(this, "mqtt", "info", "Conectando a MQTT", "Red: " + networkLabel(), -1);
                   setCloud("● CONECTANDO", Color.rgb(240,161,30), "Sincronizando…");
                   systemState.setText("SINCRONIZANDO…");
                   systemState.setTextColor(Color.rgb(92,112,136));
@@ -2254,14 +2478,11 @@ jobs:
                           mqtt.setCallback(new MqttCallbackExtended() {
                               @Override
                               public void connectComplete(boolean reconnect, String serverURI) {
-                                  addBlackBoxEvent(
-                                      "ok",
-                                      "MQTT",
+                                  BlackBoxLogger.setConnected(MainActivity.this, true);
+                                  BlackBoxLogger.log(
+                                      MainActivity.this, "mqtt", "ok",
                                       reconnect ? "MQTT reconectado" : "MQTT conectado",
-                                      reconnect
-                                          ? "Sesión recuperada automáticamente"
-                                          : "Sesión establecida correctamente",
-                                      -1L
+                                      "Red: " + networkLabel(), -1
                                   );
                                   runOnUiThread(() ->
                                       setCloud(
@@ -2275,12 +2496,10 @@ jobs:
 
                               @Override
                               public void connectionLost(Throwable cause) {
-                                  addBlackBoxEvent(
-                                      "error",
-                                      "MQTT",
-                                      "MQTT desconectado",
-                                      safe(cause == null ? "Conexión perdida" : cause.getMessage()),
-                                      -1L
+                                  BlackBoxLogger.setConnected(MainActivity.this, false);
+                                  BlackBoxLogger.log(
+                                      MainActivity.this, "mqtt", "error", "MQTT desconectado",
+                                      safe(cause == null ? null : cause.getMessage()) + " · Red: " + networkLabel(), -1
                                   );
                                   runOnUiThread(() -> {
                                       setCloud("● OFFLINE", Color.rgb(201,54,64), "Conexión perdida");
@@ -2310,13 +2529,8 @@ jobs:
                           mqtt.connect(o);
 
                       } catch (Exception e) {
-                          addBlackBoxEvent(
-                              "error",
-                              "MQTT",
-                              "Error de conexión MQTT",
-                              safe(e.getMessage()),
-                              -1L
-                          );
+                          BlackBoxLogger.setConnected(MainActivity.this, false);
+                          BlackBoxLogger.log(MainActivity.this, "mqtt", "error", "Error de conexión MQTT", safe(e.getMessage()) + " · Red: " + networkLabel(), -1);
                           runOnUiThread(() -> {
                               setCloud("● ERROR", Color.rgb(201,54,64), safe(e.getMessage()));
                               powerRing.setMode(PowerRingView.MODE_OFFLINE);
@@ -2331,21 +2545,9 @@ jobs:
                           mqtt.subscribe(topicBase + "/state", 1);
                           mqtt.subscribe(topicBase + "/ack", 1);
                           mqtt.subscribe(topicBase + "/status", 1);
-                          addBlackBoxEvent(
-                              "ok",
-                              "MQTT",
-                              "Canales MQTT activos",
-                              "state · ack · status",
-                              -1L
-                          );
+                          BlackBoxLogger.log(MainActivity.this, "mqtt", "ok", "Suscripciones activas", "state · ack · status", -1);
                       } catch (Exception e) {
-                          addBlackBoxEvent(
-                              "error",
-                              "MQTT",
-                              "Error de suscripción MQTT",
-                              safe(e.getMessage()),
-                              -1L
-                          );
+                          BlackBoxLogger.log(MainActivity.this, "mqtt", "error", "Error de suscripción", safe(e.getMessage()), -1);
                           runOnUiThread(() ->
                               setCloud(
                                   "● ERROR",
@@ -2448,15 +2650,11 @@ jobs:
                       return;
                   }
 
-                  long latency = pendingLatencyMs();
-                  String command = pendingCommandLabel();
                   mainHandler.removeCallbacks(ackTimeout);
-                  addBlackBoxEvent(
-                      "ok",
-                      "ACK",
-                      "Orden confirmada por estado",
-                      command,
-                      latency
+                  long latency = pendingSentAt > 0 ? System.currentTimeMillis() - pendingSentAt : -1;
+                  BlackBoxLogger.log(
+                      this, "ack", "ok", "Orden confirmada por estado",
+                      commandLabel(pendingAction, pendingValue) + " · " + safe(state), latency
                   );
                   clearPendingCommand();
 
@@ -2482,14 +2680,7 @@ jobs:
                               motorOn ? "ENCENDIDO" : "APAGADO"
                           );
                           long soak = j.optLong("soakRemaining", 0);
-
-                          logBlackBoxState(
-                              state,
-                              motorOn,
-                              high,
-                              pumpOn,
-                              soak
-                          );
+                          logStateIfChanged(state, motorOn, high, pumpOn, soak);
 
                           confirmPendingFromState(
                               state,
@@ -2523,14 +2714,7 @@ jobs:
                               );
                               long soak =
                                   j.optLong("soakRemaining", 0);
-
-                              logBlackBoxState(
-                                  state,
-                                  motorOn,
-                                  high,
-                                  pumpOn,
-                                  soak
-                              );
+                              logStateIfChanged(state, motorOn, high, pumpOn, soak);
 
                               confirmPendingFromState(
                                   state,
@@ -2560,8 +2744,6 @@ jobs:
                                   return;
                               }
 
-                              long latency = pendingLatencyMs();
-                              String command = pendingCommandLabel();
                               mainHandler.removeCallbacks(ackTimeout);
 
                               boolean accepted =
@@ -2587,14 +2769,11 @@ jobs:
                                   );
                               long soak =
                                   j.optLong("soakRemaining", 0);
-
-                              addBlackBoxEvent(
-                                  accepted ? "ok" : "error",
-                                  "ACK",
+                              long latency = pendingSentAt > 0 ? System.currentTimeMillis() - pendingSentAt : -1;
+                              BlackBoxLogger.log(
+                                  this, "ack", accepted ? "ok" : "error",
                                   accepted ? "ACK recibido" : "Orden rechazada",
-                                  accepted
-                                      ? command
-                                      : command + " · " + friendlyResult(result),
+                                  commandLabel(pendingAction, pendingValue) + " · " + friendlyResult(result),
                                   latency
                               );
                               clearPendingCommand();
@@ -2612,13 +2791,10 @@ jobs:
                               return;
                           }
 
-                          addBlackBoxEvent(
-                              online ? "ok" : "warn",
-                              "STATE",
-                              online ? "AireSmart en línea" : "AireSmart sin conexión",
-                              online ? "Estado remoto disponible" : "El ESP32 reportó offline",
-                              -1L
-                          );
+                          BlackBoxLogger.setConnected(this, online);
+                          if (!online) {
+                              BlackBoxLogger.log(this, "mqtt", "warn", "AireSmart reportó offline", "El dispositivo no está disponible", -1);
+                          }
                           runOnUiThread(() -> {
                               setCloud(
                                   online ? "● EN LÍNEA" : "● OFFLINE",
@@ -2644,8 +2820,6 @@ jobs:
                               return;
                           }
 
-                          long latency = pendingLatencyMs();
-                          String command = pendingCommandLabel();
                           mainHandler.removeCallbacks(ackTimeout);
 
                           boolean accepted = j.optBoolean("accepted", false);
@@ -2660,14 +2834,11 @@ jobs:
                               "state",
                               motorOn ? "ENCENDIDO" : "APAGADO"
                           );
-
-                          addBlackBoxEvent(
-                              accepted ? "ok" : "error",
-                              "ACK",
+                          long latency = pendingSentAt > 0 ? System.currentTimeMillis() - pendingSentAt : -1;
+                          BlackBoxLogger.log(
+                              this, "ack", accepted ? "ok" : "error",
                               accepted ? "ACK recibido" : "Orden rechazada",
-                              accepted
-                                  ? command
-                                  : command + " · " + friendlyResult(result),
+                              commandLabel(pendingAction, pendingValue) + " · " + friendlyResult(result),
                               latency
                           );
                           clearPendingCommand();
@@ -2690,13 +2861,7 @@ jobs:
                       }
 
                   } catch (Exception e) {
-                      addBlackBoxEvent(
-                          "error",
-                          "MQTT",
-                          "Mensaje MQTT no válido",
-                          safe(e.getMessage()),
-                          -1L
-                      );
+                      BlackBoxLogger.log(this, "error", "error", "Mensaje MQTT no válido", safe(e.getMessage()), -1);
                       runOnUiThread(() -> showAck("MENSAJE MQTT NO VÁLIDO", false));
                   }
               }
@@ -2715,13 +2880,7 @@ jobs:
 
               private void sendCommand(String action, String value, boolean boolValue) {
                   if (mqtt == null || !mqtt.isConnected()) {
-                      addBlackBoxEvent(
-                          "error",
-                          "CMD",
-                          "Orden no enviada",
-                          commandLabel(action, value) + " · MQTT sin conexión",
-                          -1L
-                      );
+                      BlackBoxLogger.log(this, "cmd", "error", "Orden no enviada", commandLabel(action, value) + " · MQTT sin conexión", -1);
                       toast("AireSmart no está conectado");
                       return;
                   }
@@ -2738,13 +2897,7 @@ jobs:
                   pendingAction = action;
                   pendingValue = value;
                   pendingSentAt = System.currentTimeMillis();
-                  addBlackBoxEvent(
-                      "info",
-                      "CMD",
-                      commandLabel(action, value) + " enviado",
-                      "Orden preparada para publicación MQTT",
-                      -1L
-                  );
+                  BlackBoxLogger.log(this, "cmd", "info", "Orden enviada", commandLabel(action, value) + " · Red: " + networkLabel(), -1);
                   showAck("ENVIANDO ORDEN…", false);
                   powerRing.setMode(PowerRingView.MODE_PENDING);
 
@@ -2758,22 +2911,10 @@ jobs:
                           m.setQos(1);
                           m.setRetained(false);
                           mqtt.publish(topicBase + "/cmd", m);
-                          addBlackBoxEvent(
-                              "ok",
-                              "MQTT",
-                              "MQTT publicado correctamente",
-                              commandLabel(action, value) + " · QoS 1",
-                              -1L
-                          );
+                          BlackBoxLogger.log(MainActivity.this, "mqtt", "ok", "MQTT publicado", commandLabel(action, value), -1);
 
                       } catch (Exception e) {
-                          addBlackBoxEvent(
-                              "error",
-                              "CMD",
-                              "Error al enviar orden",
-                              commandLabel(action, value) + " · " + safe(e.getMessage()),
-                              pendingLatencyMs()
-                          );
+                          BlackBoxLogger.log(MainActivity.this, "cmd", "error", "Error al enviar", commandLabel(action, value) + " · " + safe(e.getMessage()), -1);
                           runOnUiThread(() -> {
                               mainHandler.removeCallbacks(ackTimeout);
                               clearPendingCommand();
@@ -2984,788 +3125,6 @@ jobs:
                       .start();
               }
 
-              private static class BlackBoxEvent {
-                  long time;
-                  String level;
-                  String category;
-                  String title;
-                  String detail;
-                  long latencyMs;
-
-                  BlackBoxEvent(
-                      long time,
-                      String level,
-                      String category,
-                      String title,
-                      String detail,
-                      long latencyMs
-                  ) {
-                      this.time = time;
-                      this.level = level;
-                      this.category = category;
-                      this.title = title;
-                      this.detail = detail;
-                      this.latencyMs = latencyMs;
-                  }
-              }
-
-              private void loadBlackBoxEvents() {
-                  synchronized (blackBoxLock) {
-                      blackBoxEvents.clear();
-                      String raw = prefs == null
-                          ? ""
-                          : prefs.getString(PREF_BLACK_BOX_LOG, "");
-
-                      if (raw == null || raw.trim().isEmpty()) {
-                          return;
-                      }
-
-                      try {
-                          JSONArray array = new JSONArray(raw);
-                          for (int i = 0; i < array.length(); i++) {
-                              JSONObject j = array.optJSONObject(i);
-                              if (j == null) continue;
-
-                              blackBoxEvents.add(
-                                  new BlackBoxEvent(
-                                      j.optLong("time", 0L),
-                                      j.optString("level", "info"),
-                                      j.optString("category", "APP"),
-                                      j.optString("title", "Evento"),
-                                      j.optString("detail", ""),
-                                      j.optLong("latencyMs", -1L)
-                                  )
-                              );
-                          }
-                      } catch (Exception ignored) {
-                          blackBoxEvents.clear();
-                      }
-                  }
-              }
-
-              private void persistBlackBoxEventsLocked() {
-                  if (prefs == null) return;
-
-                  JSONArray array = new JSONArray();
-                  try {
-                      for (BlackBoxEvent event : blackBoxEvents) {
-                          JSONObject j = new JSONObject();
-                          j.put("time", event.time);
-                          j.put("level", event.level);
-                          j.put("category", event.category);
-                          j.put("title", event.title);
-                          j.put("detail", event.detail);
-                          j.put("latencyMs", event.latencyMs);
-                          array.put(j);
-                      }
-                  } catch (Exception ignored) {}
-
-                  prefs.edit()
-                      .putString(PREF_BLACK_BOX_LOG, array.toString())
-                      .apply();
-              }
-
-              private void addBlackBoxEvent(
-                  String level,
-                  String category,
-                  String title,
-                  String detail,
-                  long latencyMs
-              ) {
-                  long now = System.currentTimeMillis();
-                  String safeLevel = level == null ? "info" : level;
-                  String safeCategory = category == null ? "APP" : category;
-                  String safeTitle = title == null ? "Evento" : title;
-                  String safeDetail = detail == null ? "" : detail;
-
-                  if (safeDetail.length() > 220) {
-                      safeDetail = safeDetail.substring(0, 220);
-                  }
-
-                  synchronized (blackBoxLock) {
-                      if (!blackBoxEvents.isEmpty()) {
-                          BlackBoxEvent last =
-                              blackBoxEvents.get(blackBoxEvents.size() - 1);
-
-                          if (
-                              now - last.time < 3000L &&
-                              safeCategory.equals(last.category) &&
-                              safeTitle.equals(last.title) &&
-                              safeDetail.equals(last.detail)
-                          ) {
-                              return;
-                          }
-                      }
-
-                      blackBoxEvents.add(
-                          new BlackBoxEvent(
-                              now,
-                              safeLevel,
-                              safeCategory,
-                              safeTitle,
-                              safeDetail,
-                              latencyMs
-                          )
-                      );
-
-                      while (blackBoxEvents.size() > BLACK_BOX_MAX_EVENTS) {
-                          blackBoxEvents.remove(0);
-                      }
-
-                      persistBlackBoxEventsLocked();
-                  }
-
-                  if (blackBoxDialog != null) {
-                      runOnUiThread(this::refreshBlackBoxUi);
-                  }
-              }
-
-              private void logBlackBoxState(
-                  String state,
-                  boolean currentMotor,
-                  boolean currentHigh,
-                  boolean currentPump,
-                  long soakRemaining
-              ) {
-                  String safeState = state == null ? "--" : state.toUpperCase(Locale.ROOT);
-                  String signature =
-                      safeState + "|" + currentMotor + "|" + currentHigh + "|" + currentPump + "|" +
-                      (soakRemaining > 0 ? "SOAK" : "READY");
-
-                  if (signature.equals(lastBlackBoxStateSignature)) return;
-                  lastBlackBoxStateSignature = signature;
-
-                  String detail = safeState +
-                      " · " + (currentHigh ? "ALTA" : "BAJA") +
-                      " · BOMBA " + (currentPump ? "ON" : "OFF");
-
-                  if (soakRemaining > 0) {
-                      detail += " · remojo " + soakRemaining + " s";
-                  }
-
-                  addBlackBoxEvent(
-                      "info",
-                      "STATE",
-                      "Estado sincronizado",
-                      detail,
-                      -1L
-                  );
-              }
-
-              private long pendingLatencyMs() {
-                  if (pendingSentAt <= 0L) return -1L;
-                  return Math.max(0L, System.currentTimeMillis() - pendingSentAt);
-              }
-
-              private String pendingCommandLabel() {
-                  return commandLabel(pendingAction, pendingValue);
-              }
-
-              private String commandLabel(String action, String value) {
-                  if ("power".equals(action)) {
-                      return "true".equals(value) ? "ENCENDER" : "APAGAR";
-                  }
-                  if ("speed".equals(action)) {
-                      return "high".equals(value) ? "ALTA" : "BAJA";
-                  }
-                  if ("mode".equals(action)) {
-                      return "fan".equals(value) ? "SOLO AIRE" : "ENFRIAR";
-                  }
-                  if (action == null || action.isEmpty()) return "ORDEN";
-                  return action.toUpperCase(Locale.ROOT);
-              }
-
-              private void showBlackBox() {
-                  blackBoxFilter = "all";
-                  blackBoxDialog = new AlertDialog.Builder(this)
-                      .setView(buildBlackBoxUi())
-                      .create();
-
-                  blackBoxDialog.setOnDismissListener(d -> {
-                      blackBoxDialog = null;
-                      blackBoxTimeline = null;
-                      blackBoxAckCount = null;
-                      blackBoxErrorCount = null;
-                      blackBoxAvgLatency = null;
-                      blackBoxEventCount = null;
-                  });
-
-                  blackBoxDialog.setOnShowListener(d -> {
-                      if (blackBoxDialog.getWindow() != null) {
-                          blackBoxDialog.getWindow().setLayout(-1, -1);
-                          blackBoxDialog.getWindow().setBackgroundDrawable(
-                              bg(Color.rgb(232,235,239), 0)
-                          );
-                      }
-                  });
-
-                  blackBoxDialog.show();
-              }
-
-              private View buildBlackBoxUi() {
-                  ScrollView scroll = new ScrollView(this);
-                  scroll.setFillViewport(true);
-                  scroll.setBackgroundColor(Color.rgb(232,235,239));
-
-                  LinearLayout root = new LinearLayout(this);
-                  root.setOrientation(LinearLayout.VERTICAL);
-                  root.setPadding(dp(16), dp(18), dp(16), dp(26));
-                  scroll.addView(root, new ScrollView.LayoutParams(-1, -1));
-
-                  LinearLayout header = new LinearLayout(this);
-                  header.setOrientation(LinearLayout.HORIZONTAL);
-                  header.setGravity(Gravity.CENTER_VERTICAL);
-
-                  Button back = button("‹", Color.rgb(245,246,248));
-                  back.setTextColor(Color.rgb(30,35,40));
-                  back.setTextSize(25);
-                  back.setOnClickListener(v -> {
-                      if (blackBoxDialog != null) blackBoxDialog.dismiss();
-                  });
-                  header.addView(back, lp(46, 46));
-
-                  LinearLayout headerText = new LinearLayout(this);
-                  headerText.setOrientation(LinearLayout.VERTICAL);
-                  headerText.setGravity(Gravity.CENTER);
-                  TextView title = text(
-                      "Caja Negra",
-                      21,
-                      Color.rgb(29,34,40),
-                      true
-                  );
-                  TextView sub = text(
-                      "AireSmart · diagnóstico local",
-                      11,
-                      Color.rgb(112,119,128),
-                      false
-                  );
-                  headerText.addView(title);
-                  headerText.addView(sub);
-                  header.addView(
-                      headerText,
-                      new LinearLayout.LayoutParams(0, -2, 1)
-                  );
-
-                  View headerSpacer = new View(this);
-                  header.addView(headerSpacer, lp(46, 46));
-                  root.addView(header);
-                  space(root, 14);
-
-                  LinearLayout hero = card();
-                  hero.setPadding(dp(16), dp(16), dp(16), dp(16));
-
-                  LinearLayout heroTop = new LinearLayout(this);
-                  heroTop.setOrientation(LinearLayout.HORIZONTAL);
-                  heroTop.setGravity(Gravity.CENTER_VERTICAL);
-
-                  LinearLayout livePill = new LinearLayout(this);
-                  livePill.setOrientation(LinearLayout.HORIZONTAL);
-                  livePill.setGravity(Gravity.CENTER_VERTICAL);
-                  livePill.setPadding(dp(12), dp(8), dp(12), dp(8));
-                  livePill.setBackground(bg(Color.rgb(250,250,251), 18));
-
-                  boolean connected = mqtt != null && mqtt.isConnected();
-                  SignalDotView liveDot = new SignalDotView(
-                      this,
-                      connected ? "ok" : "bad"
-                  );
-                  livePill.addView(liveDot, lp(18, 18));
-                  spaceHorizontal(livePill, 8);
-                  TextView liveText = text(
-                      connected ? "Conectado" : "Sin conexión",
-                      12,
-                      Color.rgb(35,40,46),
-                      true
-                  );
-                  livePill.addView(liveText);
-                  heroTop.addView(livePill);
-
-                  TextView liveLabel = text(
-                      "Registro en vivo",
-                      11,
-                      Color.rgb(112,119,128),
-                      false
-                  );
-                  liveLabel.setGravity(Gravity.END);
-                  heroTop.addView(
-                      liveLabel,
-                      new LinearLayout.LayoutParams(0, -2, 1)
-                  );
-                  hero.addView(heroTop);
-                  space(hero, 14);
-
-                  LinearLayout metrics = new LinearLayout(this);
-                  metrics.setOrientation(LinearLayout.HORIZONTAL);
-                  blackBoxAckCount = metricTile(metrics, "0", "ACK correctos");
-                  spaceHorizontal(metrics, 8);
-                  blackBoxErrorCount = metricTile(metrics, "0", "Fallos");
-                  spaceHorizontal(metrics, 8);
-                  blackBoxAvgLatency = metricTile(metrics, "--", "ms promedio");
-                  hero.addView(metrics);
-                  space(hero, 14);
-
-                  LinearLayout legendTop = new LinearLayout(this);
-                  legendTop.setOrientation(LinearLayout.HORIZONTAL);
-                  legendTop.addView(
-                      blackBoxLegend("ok", "Correcto", "respiración suave"),
-                      new LinearLayout.LayoutParams(0, -2, 1)
-                  );
-                  spaceHorizontal(legendTop, 8);
-                  legendTop.addView(
-                      blackBoxLegend("info", "Información", "onda tipo radar"),
-                      new LinearLayout.LayoutParams(0, -2, 1)
-                  );
-                  hero.addView(legendTop);
-                  space(hero, 8);
-
-                  LinearLayout legendBottom = new LinearLayout(this);
-                  legendBottom.setOrientation(LinearLayout.HORIZONTAL);
-                  legendBottom.addView(
-                      blackBoxLegend("warn", "Atención", "pulso naranja"),
-                      new LinearLayout.LayoutParams(0, -2, 1)
-                  );
-                  spaceHorizontal(legendBottom, 8);
-                  legendBottom.addView(
-                      blackBoxLegend("bad", "Error", "doble latido"),
-                      new LinearLayout.LayoutParams(0, -2, 1)
-                  );
-                  hero.addView(legendBottom);
-                  root.addView(hero);
-                  space(root, 14);
-
-                  LinearLayout eventsCard = card();
-                  LinearLayout eventHeader = new LinearLayout(this);
-                  eventHeader.setOrientation(LinearLayout.HORIZONTAL);
-                  eventHeader.setGravity(Gravity.CENTER_VERTICAL);
-                  TextView eventTitle = text(
-                      "EVENTOS",
-                      13,
-                      Color.rgb(35,40,46),
-                      true
-                  );
-                  eventTitle.setGravity(Gravity.START);
-                  eventHeader.addView(
-                      eventTitle,
-                      new LinearLayout.LayoutParams(0, -2, 1)
-                  );
-                  blackBoxEventCount = text(
-                      "0 eventos",
-                      10,
-                      Color.rgb(112,119,128),
-                      false
-                  );
-                  eventHeader.addView(blackBoxEventCount);
-                  eventsCard.addView(eventHeader);
-                  space(eventsCard, 10);
-
-                  LinearLayout filterRow1 = new LinearLayout(this);
-                  filterRow1.setOrientation(LinearLayout.HORIZONTAL);
-                  addBlackBoxFilterButton(filterRow1, "Todos", "all");
-                  spaceHorizontal(filterRow1, 6);
-                  addBlackBoxFilterButton(filterRow1, "Órdenes", "CMD");
-                  spaceHorizontal(filterRow1, 6);
-                  addBlackBoxFilterButton(filterRow1, "MQTT", "MQTT");
-                  eventsCard.addView(filterRow1);
-                  space(eventsCard, 6);
-
-                  LinearLayout filterRow2 = new LinearLayout(this);
-                  filterRow2.setOrientation(LinearLayout.HORIZONTAL);
-                  addBlackBoxFilterButton(filterRow2, "ACK", "ACK");
-                  spaceHorizontal(filterRow2, 6);
-                  addBlackBoxFilterButton(filterRow2, "Errores", "error");
-                  eventsCard.addView(filterRow2);
-                  space(eventsCard, 10);
-
-                  blackBoxTimeline = new LinearLayout(this);
-                  blackBoxTimeline.setOrientation(LinearLayout.VERTICAL);
-                  eventsCard.addView(blackBoxTimeline);
-                  root.addView(eventsCard);
-                  space(root, 14);
-
-                  LinearLayout actions = card();
-                  TextView actionsTitle = text(
-                      "ACCIONES",
-                      12,
-                      Color.rgb(92,112,136),
-                      true
-                  );
-                  actionsTitle.setGravity(Gravity.START);
-                  actions.addView(actionsTitle);
-                  space(actions, 9);
-
-                  LinearLayout actionRow1 = new LinearLayout(this);
-                  actionRow1.setOrientation(LinearLayout.HORIZONTAL);
-                  Button refresh = button("Actualizar", Color.rgb(32,37,43));
-                  refresh.setOnClickListener(v -> refreshBlackBoxUi());
-                  Button copy = button("Copiar diagnóstico", Color.rgb(92,112,136));
-                  copy.setOnClickListener(v -> copyBlackBoxDiagnostic());
-                  actionRow1.addView(refresh, new LinearLayout.LayoutParams(0, dp(50), 1));
-                  spaceHorizontal(actionRow1, 8);
-                  actionRow1.addView(copy, new LinearLayout.LayoutParams(0, dp(50), 1));
-                  actions.addView(actionRow1);
-                  space(actions, 8);
-
-                  LinearLayout actionRow2 = new LinearLayout(this);
-                  actionRow2.setOrientation(LinearLayout.HORIZONTAL);
-                  Button share = button("Exportar registro", Color.rgb(58,101,173));
-                  share.setOnClickListener(v -> shareBlackBoxDiagnostic());
-                  Button clear = button("Borrar historial", Color.rgb(201,54,64));
-                  clear.setOnClickListener(v -> confirmClearBlackBox());
-                  actionRow2.addView(share, new LinearLayout.LayoutParams(0, dp(50), 1));
-                  spaceHorizontal(actionRow2, 8);
-                  actionRow2.addView(clear, new LinearLayout.LayoutParams(0, dp(50), 1));
-                  actions.addView(actionRow2);
-                  root.addView(actions);
-
-                  TextView version = text(
-                      "AireSmart v1.0.25 · Caja Negra",
-                      10,
-                      Color.rgb(132,148,167),
-                      false
-                  );
-                  LinearLayout.LayoutParams versionLp = lp(-1, -2);
-                  versionLp.topMargin = dp(16);
-                  root.addView(version, versionLp);
-
-                  refreshBlackBoxUi();
-                  animateEntrance(root);
-                  return scroll;
-              }
-
-              private TextView metricTile(
-                  LinearLayout parent,
-                  String value,
-                  String label
-              ) {
-                  LinearLayout tile = new LinearLayout(this);
-                  tile.setOrientation(LinearLayout.VERTICAL);
-                  tile.setGravity(Gravity.CENTER);
-                  tile.setPadding(dp(8), dp(10), dp(8), dp(10));
-                  tile.setBackground(bg(Color.rgb(250,250,251), 16));
-
-                  TextView number = text(
-                      value,
-                      19,
-                      Color.rgb(29,34,40),
-                      true
-                  );
-                  TextView caption = text(
-                      label,
-                      9,
-                      Color.rgb(112,119,128),
-                      false
-                  );
-                  tile.addView(number);
-                  tile.addView(caption);
-                  parent.addView(
-                      tile,
-                      new LinearLayout.LayoutParams(0, dp(68), 1)
-                  );
-                  return number;
-              }
-
-              private View blackBoxLegend(
-                  String level,
-                  String title,
-                  String detail
-              ) {
-                  LinearLayout item = new LinearLayout(this);
-                  item.setOrientation(LinearLayout.HORIZONTAL);
-                  item.setGravity(Gravity.CENTER_VERTICAL);
-                  item.setPadding(dp(10), dp(9), dp(10), dp(9));
-                  item.setBackground(bg(Color.rgb(250,250,251), 15));
-
-                  item.addView(new SignalDotView(this, level), lp(18, 18));
-                  spaceHorizontal(item, 9);
-
-                  LinearLayout labels = new LinearLayout(this);
-                  labels.setOrientation(LinearLayout.VERTICAL);
-                  TextView t = text(title, 10, Color.rgb(35,40,46), true);
-                  t.setGravity(Gravity.START);
-                  TextView d = text(detail, 8, Color.rgb(112,119,128), false);
-                  d.setGravity(Gravity.START);
-                  labels.addView(t);
-                  labels.addView(d);
-                  item.addView(labels);
-                  return item;
-              }
-
-              private void addBlackBoxFilterButton(
-                  LinearLayout row,
-                  String label,
-                  String filter
-              ) {
-                  Button b = button(label, Color.rgb(236,239,242));
-                  b.setTextColor(Color.rgb(50,58,67));
-                  b.setTextSize(11);
-                  b.setOnClickListener(v -> {
-                      blackBoxFilter = filter;
-                      refreshBlackBoxUi();
-                  });
-                  row.addView(
-                      b,
-                      new LinearLayout.LayoutParams(0, dp(42), 1)
-                  );
-              }
-
-              private boolean blackBoxMatches(BlackBoxEvent event) {
-                  if ("all".equals(blackBoxFilter)) return true;
-                  if ("error".equals(blackBoxFilter)) {
-                      return "error".equals(event.level);
-                  }
-                  return blackBoxFilter.equals(event.category);
-              }
-
-              private void refreshBlackBoxUi() {
-                  if (blackBoxTimeline == null) return;
-
-                  ArrayList<BlackBoxEvent> snapshot;
-                  synchronized (blackBoxLock) {
-                      snapshot = new ArrayList<>(blackBoxEvents);
-                  }
-
-                  int ackOk = 0;
-                  int errors = 0;
-                  long latencyTotal = 0L;
-                  int latencyCount = 0;
-                  int visible = 0;
-
-                  for (BlackBoxEvent event : snapshot) {
-                      if (
-                          "ACK".equals(event.category) &&
-                          "ok".equals(event.level)
-                      ) {
-                          ackOk++;
-                      }
-                      if ("error".equals(event.level)) errors++;
-                      if (
-                          "ACK".equals(event.category) &&
-                          event.latencyMs >= 0L
-                      ) {
-                          latencyTotal += event.latencyMs;
-                          latencyCount++;
-                      }
-                  }
-
-                  if (blackBoxAckCount != null) {
-                      blackBoxAckCount.setText(String.valueOf(ackOk));
-                  }
-                  if (blackBoxErrorCount != null) {
-                      blackBoxErrorCount.setText(String.valueOf(errors));
-                  }
-                  if (blackBoxAvgLatency != null) {
-                      blackBoxAvgLatency.setText(
-                          latencyCount == 0
-                              ? "--"
-                              : String.valueOf(latencyTotal / latencyCount)
-                      );
-                  }
-
-                  blackBoxTimeline.removeAllViews();
-                  int shown = 0;
-                  for (int i = snapshot.size() - 1; i >= 0; i--) {
-                      BlackBoxEvent event = snapshot.get(i);
-                      if (!blackBoxMatches(event)) continue;
-                      visible++;
-                      if (shown >= 60) continue;
-                      blackBoxTimeline.addView(blackBoxEventRow(event));
-                      shown++;
-                  }
-
-                  if (shown == 0) {
-                      TextView empty = text(
-                          "Aún no hay eventos en este filtro.",
-                          11,
-                          Color.rgb(112,119,128),
-                          false
-                      );
-                      empty.setPadding(0, dp(18), 0, dp(18));
-                      blackBoxTimeline.addView(empty);
-                  }
-
-                  if (blackBoxEventCount != null) {
-                      blackBoxEventCount.setText(
-                          visible + (visible == 1 ? " evento" : " eventos")
-                      );
-                  }
-              }
-
-              private View blackBoxEventRow(BlackBoxEvent event) {
-                  LinearLayout row = new LinearLayout(this);
-                  row.setOrientation(LinearLayout.HORIZONTAL);
-                  row.setGravity(Gravity.TOP);
-                  row.setPadding(0, dp(10), 0, dp(10));
-
-                  SimpleDateFormat fmt = new SimpleDateFormat(
-                      "HH:mm:ss",
-                      Locale.getDefault()
-                  );
-                  TextView time = text(
-                      fmt.format(new Date(event.time)),
-                      9,
-                      Color.rgb(112,119,128),
-                      false
-                  );
-                  time.setGravity(Gravity.START);
-                  row.addView(time, lp(58, -2));
-
-                  String dotLevel = event.level;
-                  if ("error".equals(dotLevel)) dotLevel = "bad";
-                  row.addView(new SignalDotView(this, dotLevel), lp(18, 18));
-                  spaceHorizontal(row, 9);
-
-                  LinearLayout labels = new LinearLayout(this);
-                  labels.setOrientation(LinearLayout.VERTICAL);
-                  TextView title = text(
-                      event.title,
-                      12,
-                      Color.rgb(35,40,46),
-                      true
-                  );
-                  title.setGravity(Gravity.START);
-                  labels.addView(title);
-
-                  if (event.detail != null && !event.detail.isEmpty()) {
-                      TextView detail = text(
-                          event.detail,
-                          10,
-                          Color.rgb(112,119,128),
-                          false
-                      );
-                      detail.setGravity(Gravity.START);
-                      labels.addView(detail);
-                  }
-
-                  if (event.latencyMs >= 0L) {
-                      TextView latency = text(
-                          event.latencyMs >= 1000L
-                              ? String.format(
-                                  Locale.getDefault(),
-                                  "%.1f s",
-                                  event.latencyMs / 1000f
-                              )
-                              : event.latencyMs + " ms",
-                          9,
-                          Color.rgb(70,80,90),
-                          true
-                      );
-                      latency.setGravity(Gravity.START);
-                      latency.setPadding(
-                          dp(7),
-                          dp(3),
-                          dp(7),
-                          dp(3)
-                      );
-                      latency.setBackground(
-                          bg(Color.rgb(235,238,241), 12)
-                      );
-                      LinearLayout.LayoutParams latencyLp = lp(-2, -2);
-                      latencyLp.topMargin = dp(4);
-                      labels.addView(latency, latencyLp);
-                  }
-
-                  row.addView(
-                      labels,
-                      new LinearLayout.LayoutParams(0, -2, 1)
-                  );
-                  return row;
-              }
-
-              private String blackBoxDiagnosticText() {
-                  StringBuilder out = new StringBuilder();
-                  out.append("AireSmart v1.0.25 · Caja Negra\n");
-                  out.append("Estado MQTT: ")
-                      .append(mqtt != null && mqtt.isConnected()
-                          ? "CONECTADO"
-                          : "DESCONECTADO")
-                      .append("\n\n");
-
-                  ArrayList<BlackBoxEvent> snapshot;
-                  synchronized (blackBoxLock) {
-                      snapshot = new ArrayList<>(blackBoxEvents);
-                  }
-
-                  SimpleDateFormat fmt = new SimpleDateFormat(
-                      "yyyy-MM-dd HH:mm:ss",
-                      Locale.getDefault()
-                  );
-
-                  for (int i = snapshot.size() - 1; i >= 0; i--) {
-                      BlackBoxEvent event = snapshot.get(i);
-                      out.append(fmt.format(new Date(event.time)))
-                          .append(" | ")
-                          .append(event.category)
-                          .append(" | ")
-                          .append(event.level.toUpperCase(Locale.ROOT))
-                          .append(" | ")
-                          .append(event.title);
-
-                      if (event.detail != null && !event.detail.isEmpty()) {
-                          out.append(" | ").append(event.detail);
-                      }
-                      if (event.latencyMs >= 0L) {
-                          out.append(" | ").append(event.latencyMs).append(" ms");
-                      }
-                      out.append("\n");
-                  }
-
-                  return out.toString();
-              }
-
-              private void copyBlackBoxDiagnostic() {
-                  ClipboardManager clipboard =
-                      (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                  if (clipboard == null) {
-                      toast("No se pudo abrir el portapapeles");
-                      return;
-                  }
-
-                  clipboard.setPrimaryClip(
-                      ClipData.newPlainText(
-                          "AireSmart Caja Negra",
-                          blackBoxDiagnosticText()
-                      )
-                  );
-                  toast("Diagnóstico copiado");
-              }
-
-              private void shareBlackBoxDiagnostic() {
-                  Intent share = new Intent(Intent.ACTION_SEND);
-                  share.setType("text/plain");
-                  share.putExtra(
-                      Intent.EXTRA_SUBJECT,
-                      "AireSmart · Caja Negra"
-                  );
-                  share.putExtra(
-                      Intent.EXTRA_TEXT,
-                      blackBoxDiagnosticText()
-                  );
-                  startActivity(
-                      Intent.createChooser(
-                          share,
-                          "Compartir diagnóstico"
-                      )
-                  );
-              }
-
-              private void confirmClearBlackBox() {
-                  new AlertDialog.Builder(this)
-                      .setTitle("Borrar historial")
-                      .setMessage(
-                          "Se eliminarán los eventos guardados de la Caja Negra de este teléfono."
-                      )
-                      .setNegativeButton("CANCELAR", null)
-                      .setPositiveButton("BORRAR", (d, w) -> {
-                          synchronized (blackBoxLock) {
-                              blackBoxEvents.clear();
-                              persistBlackBoxEventsLocked();
-                          }
-                          refreshBlackBoxUi();
-                          toast("Historial borrado");
-                      })
-                      .show();
-              }
-
               private void animateEntrance(LinearLayout root) {
                   root.post(() -> {
                       int count = root.getChildCount();
@@ -3782,6 +3141,39 @@ jobs:
                               .start();
                       }
                   });
+              }
+
+              private String commandLabel(String action, String value) {
+                  if ("power".equals(action)) return "true".equals(value) ? "ENCENDER" : "APAGAR";
+                  if ("speed".equals(action)) return "high".equals(value) ? "VELOCIDAD ALTA" : "VELOCIDAD BAJA";
+                  if ("mode".equals(action)) return "fan".equals(value) ? "SOLO AIRE" : "ENFRIAR";
+                  return safe(action) + " " + safe(value);
+              }
+
+              private void logStateIfChanged(String state, boolean motor, boolean highNow, boolean pump, long soak) {
+                  String key = safe(state) + "|" + motor + "|" + highNow + "|" + pump + "|" + soak;
+                  if (key.equals(lastLoggedState)) return;
+                  lastLoggedState = key;
+                  String detail = "motor=" + (motor ? "ON" : "OFF") +
+                      " · bomba=" + (pump ? "ON" : "OFF") +
+                      " · velocidad=" + (highNow ? "ALTA" : "BAJA") +
+                      (soak > 0 ? " · remojo=" + soak + "s" : "");
+                  BlackBoxLogger.log(this, "state", "info", "Estado ESP32: " + safe(state), detail, -1);
+              }
+
+              private String networkLabel() {
+                  try {
+                      android.net.ConnectivityManager cm = (android.net.ConnectivityManager)getSystemService(Context.CONNECTIVITY_SERVICE);
+                      if (cm == null) return "desconocida";
+                      android.net.Network n = cm.getActiveNetwork();
+                      if (n == null) return "sin red";
+                      android.net.NetworkCapabilities c = cm.getNetworkCapabilities(n);
+                      if (c == null) return "desconocida";
+                      if (c.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) return "Wi-Fi";
+                      if (c.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)) return "datos móviles";
+                      if (c.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)) return "Ethernet";
+                      return "otra";
+                  } catch (Exception e) { return "desconocida"; }
               }
 
               private String friendlyResult(String result) {
@@ -3903,132 +3295,6 @@ jobs:
                           }
                       } catch (Exception ignored) {}
                   });
-              }
-
-              public static class SignalDotView extends View {
-                  private final Paint corePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-                  private final Paint haloPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-                  private final String mode;
-                  private ValueAnimator animator;
-                  private float phase = 0f;
-
-                  public SignalDotView(Context context, String mode) {
-                      super(context);
-                      this.mode = mode == null ? "info" : mode;
-                      setLayerType(View.LAYER_TYPE_SOFTWARE, null);
-                      startAnimationLoop();
-                  }
-
-                  private void startAnimationLoop() {
-                      animator = ValueAnimator.ofFloat(0f, 1f);
-                      if ("bad".equals(mode) || "error".equals(mode)) {
-                          animator.setDuration(1350L);
-                      } else if ("warn".equals(mode)) {
-                          animator.setDuration(1200L);
-                      } else if ("ok".equals(mode)) {
-                          animator.setDuration(1800L);
-                      } else {
-                          animator.setDuration(1750L);
-                      }
-                      animator.setRepeatCount(ValueAnimator.INFINITE);
-                      animator.setInterpolator(new LinearInterpolator());
-                      animator.addUpdateListener(a -> {
-                          phase = (float) a.getAnimatedValue();
-                          invalidate();
-                      });
-                      animator.start();
-                  }
-
-                  private int signalColor() {
-                      if ("ok".equals(mode)) return Color.rgb(56,216,137);
-                      if ("warn".equals(mode)) return Color.rgb(255,157,56);
-                      if ("bad".equals(mode) || "error".equals(mode)) {
-                          return Color.rgb(255,93,93);
-                      }
-                      return Color.rgb(74,168,255);
-                  }
-
-                  @Override
-                  protected void onDraw(Canvas canvas) {
-                      super.onDraw(canvas);
-
-                      float cx = getWidth() / 2f;
-                      float cy = getHeight() / 2f;
-                      float base = Math.min(getWidth(), getHeight()) * 0.16f;
-                      int color = signalColor();
-
-                      corePaint.setStyle(Paint.Style.FILL);
-                      corePaint.setColor(color);
-                      corePaint.setShadowLayer(base * 1.45f, 0f, 0f, color);
-
-                      haloPaint.setStyle(Paint.Style.STROKE);
-                      haloPaint.setStrokeWidth(Math.max(1.3f, base * 0.28f));
-                      haloPaint.setColor(color);
-                      haloPaint.clearShadowLayer();
-
-                      if ("info".equals(mode)) {
-                          float p1 = phase;
-                          float p2 = (phase + 0.5f) % 1f;
-                          drawSignalRing(canvas, cx, cy, base, p1, 2.0f);
-                          drawSignalRing(canvas, cx, cy, base, p2, 2.0f);
-                          canvas.drawCircle(cx, cy, base, corePaint);
-                          return;
-                      }
-
-                      if ("bad".equals(mode) || "error".equals(mode)) {
-                          double b1 = Math.exp(-Math.pow((phase - 0.18f) / 0.075f, 2));
-                          double b2 = Math.exp(-Math.pow((phase - 0.46f) / 0.085f, 2));
-                          float beat = (float) Math.max(b1, b2);
-                          float scale = 0.96f + 0.34f * beat;
-                          drawSignalRing(canvas, cx, cy, base, phase, 1.95f);
-                          canvas.drawCircle(cx, cy, base * scale, corePaint);
-                          return;
-                      }
-
-                      if ("warn".equals(mode)) {
-                          float pulse = (float) Math.abs(Math.sin(Math.PI * phase));
-                          drawSignalRing(canvas, cx, cy, base, phase, 1.75f);
-                          canvas.drawCircle(
-                              cx,
-                              cy,
-                              base * (0.94f + 0.26f * pulse),
-                              corePaint
-                          );
-                          return;
-                      }
-
-                      float breath = (float) Math.sin(Math.PI * phase);
-                      drawSignalRing(canvas, cx, cy, base, phase, 1.85f);
-                      canvas.drawCircle(
-                          cx,
-                          cy,
-                          base * (0.96f + 0.13f * breath),
-                          corePaint
-                      );
-                  }
-
-                  private void drawSignalRing(
-                      Canvas canvas,
-                      float cx,
-                      float cy,
-                      float base,
-                      float progress,
-                      float maxScale
-                  ) {
-                      int alpha = Math.max(
-                          0,
-                          Math.min(150, (int) (145f * (1f - progress)))
-                      );
-                      haloPaint.setAlpha(alpha);
-                      float radius = base * (1f + progress * maxScale);
-                      canvas.drawCircle(cx, cy, radius, haloPaint);
-                  }
-
-                  @Override
-                  protected void onDetachedFromWindow() {
-                      super.onDetachedFromWindow();
-                      if (animator != null) animator.cancel();
-                  }
               }
 
               public static class PowerRingView extends View {
@@ -4355,7 +3621,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.25_Caja_Negra.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.26_Visual_Engine.apk
 
       - name: Verify APK signature
         env:
@@ -4365,23 +3631,23 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.25_Caja_Negra.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.26_Visual_Engine.apk
 
       - name: Generate in-app update manifest
         shell: bash
         run: |
           set -euo pipefail
 
-          APK="AireSmart_Remote_v1.0.25_Caja_Negra.apk"
+          APK="AireSmart_Remote_v1.0.26_Visual_Engine.apk"
           SHA256="$(sha256sum "$APK" | awk '{print $1}')"
 
           cat > latest.json <<EOF
           {
-            "versionCode": 26,
-            "versionName": "1.0.25",
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.25/${APK}",
+            "versionCode": 28,
+            "versionName": "1.0.26",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.26/${APK}",
             "sha256": "${SHA256}",
-            "notes": "Caja Negra: diagnóstico local con eventos MQTT, órdenes, ACK, latencia, reconexiones y errores."
+            "notes": "Visual Engine y Caja Negra WebView con diagnóstico MQTT/ACK."
           }
           EOF
 
@@ -4392,8 +3658,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="v1.0.25"
-          APK="AireSmart_Remote_v1.0.25_Caja_Negra.apk"
+          TAG="v1.0.26"
+          APK="AireSmart_Remote_v1.0.26_Visual_Engine.apk"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload \
@@ -4406,8 +3672,8 @@ jobs:
               "$TAG" \
               "$APK" \
               latest.json \
-              --title "AireSmart Remote v1.0.25 · Caja Negra" \
-              --notes "Añade Caja Negra local con historial de órdenes, MQTT, ACK, latencia, reconexiones y errores, conservando el control de v1.0.24."
+              --title "AireSmart Remote v1.0.26" \
+              --notes "AireSmart Visual Engine + Caja Negra WebView con diagnóstico persistente."
           fi
 
           # Fuerza esta release como la Latest Release de GitHub.
@@ -4421,7 +3687,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.25-Caja-Negra
+          name: AireSmart-Remote-v1.0.26-Visual-Engine
           path: |
-            AireSmart_Remote_v1.0.25_Caja_Negra.apk
+            AireSmart_Remote_v1.0.26_Visual_Engine.apk
             latest.json
