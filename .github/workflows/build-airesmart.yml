@@ -133,6 +133,10 @@ jobs:
                   sourceCompatibility JavaVersion.VERSION_17
                   targetCompatibility JavaVersion.VERSION_17
               }
+
+              buildFeatures {
+                  buildConfig true
+              }
           }
 
           dependencies {
@@ -199,6 +203,7 @@ jobs:
           import android.graphics.Canvas;
           import android.graphics.Color;
           import android.graphics.Paint;
+          import android.graphics.Path;
           import android.graphics.RectF;
           import android.graphics.Typeface;
           import android.graphics.drawable.GradientDrawable;
@@ -3074,11 +3079,15 @@ jobs:
 
                       if (reveal > 0.001f) {
                           int save = canvas.save();
-                          canvas.clipRoundRect(
+
+                          Path flushClipPath = new Path();
+                          flushClipPath.addRoundRect(
                               bounds,
                               radius,
-                              radius
+                              radius,
+                              Path.Direction.CW
                           );
+                          canvas.clipPath(flushClipPath);
 
                           // Mitad superior oscura: aparece únicamente
                           // durante/tras la activación.
