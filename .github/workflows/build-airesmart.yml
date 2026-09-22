@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 32
-                  versionName "1.0.28"
+                  versionCode 33
+                  versionName "1.0.29"
               }
 
               signingConfigs {
@@ -299,7 +299,7 @@ jobs:
             </section>
             <section class="card"><div class="head"><b>Eventos</b><span id="eventCount">0 eventos</span></div><div class="filters"><button class="chip active" data-filter="all">Todos</button><button class="chip" data-filter="cmd">Órdenes</button><button class="chip" data-filter="mqtt">MQTT</button><button class="chip" data-filter="ack">ACK</button><button class="chip" data-filter="state">Estado</button><button class="chip" data-filter="error">Errores</button></div><div class="timeline" id="timeline"><div class="empty">Cargando…</div></div></section>
             <section class="card"><div class="head"><b>Acciones</b><span>diagnóstico</span></div><div class="actions"><button class="btn primary" id="refreshBtn">Actualizar</button><button class="btn" id="copyBtn">Copiar diagnóstico</button><button class="btn" id="exportBtn">Exportar registro</button><button class="btn danger" id="clearBtn">Borrar historial</button></div></section>
-            <div class="footer">AireSmart v1.0.28 • Visual Engine</div>
+            <div class="footer">AireSmart v1.0.29 • Compact Controls</div>
           </div><script src="ui.js"></script><script src="bridge.js"></script></body></html>
           EOF
 
@@ -642,6 +642,7 @@ jobs:
           import android.graphics.Canvas;
           import android.graphics.Color;
           import android.graphics.Paint;
+          import android.graphics.Path;
           import android.graphics.RectF;
           import android.graphics.Typeface;
           import android.graphics.drawable.GradientDrawable;
@@ -706,6 +707,7 @@ jobs:
 
               private TextView cloudStatus, detailState, systemState, heroSub, ackState;
               private Button coolButton, fanButton, lowButton, highButton;
+              private AnimatedPairView modeVisual, speedVisual;
               private PowerRingView powerRing;
 
               private LinearLayout updateCard;
@@ -784,7 +786,7 @@ jobs:
                   super.onCreate(savedInstanceState);
 
                   prefs = getSharedPreferences("airesmart", MODE_PRIVATE);
-                  BlackBoxLogger.log(this, "app", "info", "Aplicación iniciada", "AireSmart v1.0.28", -1);
+                  BlackBoxLogger.log(this, "app", "info", "Aplicación iniciada", "AireSmart v1.0.29", -1);
                   host = prefs.getString("host", host);
                   port = prefs.getInt("port", port);
                   username = prefs.getString("username", username);
@@ -1478,22 +1480,42 @@ jobs:
                   modeCard.addView(modeTitle);
                   space(modeCard, 10);
 
+                  FrameLayout modeControl = new FrameLayout(this);
+                  modeVisual = new AnimatedPairView(
+                      this,
+                      AnimatedPairView.TYPE_MODE
+                  );
+                  modeControl.addView(
+                      modeVisual,
+                      new FrameLayout.LayoutParams(-1, -1)
+                  );
+
                   LinearLayout modes = new LinearLayout(this);
                   modes.setOrientation(LinearLayout.HORIZONTAL);
 
-                  coolButton = button("ENFRIAR", Color.rgb(13,125,246));
-                  fanButton = button("SOLO AIRE", Color.rgb(32,183,201));
+                  coolButton = compactOverlayButton("ENFRIAR");
+                  fanButton = compactOverlayButton("SOLO AIRE");
 
                   coolButton.setOnClickListener(v -> sendMode("cool"));
                   fanButton.setOnClickListener(v -> sendMode("fan"));
                   addPressEffect(coolButton);
                   addPressEffect(fanButton);
 
-                  modes.addView(coolButton, new LinearLayout.LayoutParams(0, dp(54), 1));
-                  spaceHorizontal(modes, 10);
-                  modes.addView(fanButton, new LinearLayout.LayoutParams(0, dp(54), 1));
+                  modes.addView(
+                      coolButton,
+                      new LinearLayout.LayoutParams(0, -1, 1)
+                  );
+                  spaceHorizontal(modes, 12);
+                  modes.addView(
+                      fanButton,
+                      new LinearLayout.LayoutParams(0, -1, 1)
+                  );
 
-                  modeCard.addView(modes);
+                  modeControl.addView(
+                      modes,
+                      new FrameLayout.LayoutParams(-1, -1)
+                  );
+                  modeCard.addView(modeControl, lp(-1, 48));
                   root.addView(modeCard);
                   space(root, 14);
 
@@ -1503,22 +1525,42 @@ jobs:
                   speedCard.addView(speedTitle);
                   space(speedCard, 10);
 
+                  FrameLayout speedControl = new FrameLayout(this);
+                  speedVisual = new AnimatedPairView(
+                      this,
+                      AnimatedPairView.TYPE_SPEED
+                  );
+                  speedControl.addView(
+                      speedVisual,
+                      new FrameLayout.LayoutParams(-1, -1)
+                  );
+
                   LinearLayout speeds = new LinearLayout(this);
                   speeds.setOrientation(LinearLayout.HORIZONTAL);
 
-                  lowButton = button("BAJA", Color.rgb(58,101,173));
-                  highButton = button("ALTA", Color.rgb(240,139,42));
+                  lowButton = compactOverlayButton("BAJA");
+                  highButton = compactOverlayButton("ALTA");
 
                   lowButton.setOnClickListener(v -> sendSpeed(false));
                   highButton.setOnClickListener(v -> sendSpeed(true));
                   addPressEffect(lowButton);
                   addPressEffect(highButton);
 
-                  speeds.addView(lowButton, new LinearLayout.LayoutParams(0, dp(54), 1));
-                  spaceHorizontal(speeds, 10);
-                  speeds.addView(highButton, new LinearLayout.LayoutParams(0, dp(54), 1));
+                  speeds.addView(
+                      lowButton,
+                      new LinearLayout.LayoutParams(0, -1, 1)
+                  );
+                  spaceHorizontal(speeds, 12);
+                  speeds.addView(
+                      highButton,
+                      new LinearLayout.LayoutParams(0, -1, 1)
+                  );
 
-                  speedCard.addView(speeds);
+                  speedControl.addView(
+                      speeds,
+                      new FrameLayout.LayoutParams(-1, -1)
+                  );
+                  speedCard.addView(speedControl, lp(-1, 48));
                   root.addView(speedCard);
                   space(root, 12);
 
@@ -1589,7 +1631,7 @@ jobs:
                   up.topMargin = dp(14);
                   root.addView(updateCard, up);
 
-                  TextView version = text("AireSmart Remote v1.0.28", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.29", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -3219,52 +3261,52 @@ jobs:
 
               private void paintSpeedButtons() {
                   boolean ready = motorOn;
+                  int inactive = Color.rgb(92,112,136);
 
                   coolButton.setEnabled(true);
                   fanButton.setEnabled(true);
 
+                  int modeSelection = -1;
                   if (fanMode) {
-                      fanButton.setBackground(bg(Color.rgb(32,183,201), 14));
-                      fanButton.setTextColor(Color.WHITE);
-                      coolButton.setBackground(bg(Color.rgb(220,226,233), 14));
-                      coolButton.setTextColor(Color.rgb(92,112,136));
+                      modeSelection = 1;
                   } else if (systemActive) {
-                      coolButton.setBackground(bg(Color.rgb(13,125,246), 14));
-                      coolButton.setTextColor(Color.WHITE);
-                      fanButton.setBackground(bg(Color.rgb(220,226,233), 14));
-                      fanButton.setTextColor(Color.rgb(92,112,136));
-                  } else {
-                      coolButton.setBackground(bg(Color.rgb(220,226,233), 14));
-                      coolButton.setTextColor(Color.rgb(92,112,136));
-                      fanButton.setBackground(bg(Color.rgb(220,226,233), 14));
-                      fanButton.setTextColor(Color.rgb(92,112,136));
+                      modeSelection = 0;
                   }
+
+                  if (modeVisual != null) {
+                      modeVisual.setReady(true);
+                      modeVisual.setSelection(modeSelection);
+                  }
+
+                  coolButton.setTextColor(
+                      modeSelection == 0 ? Color.WHITE : inactive
+                  );
+                  fanButton.setTextColor(
+                      modeSelection == 1 ? Color.WHITE : inactive
+                  );
 
                   lowButton.setEnabled(ready);
                   highButton.setEnabled(ready);
 
+                  if (speedVisual != null) {
+                      speedVisual.setReady(ready);
+                      speedVisual.setSelection(
+                          ready ? (high ? 1 : 0) : -1
+                      );
+                  }
+
                   if (!ready) {
                       lowButton.setAlpha(0.45f);
                       highButton.setAlpha(0.45f);
+                      lowButton.setTextColor(inactive);
+                      highButton.setTextColor(inactive);
                       return;
                   }
 
                   lowButton.setAlpha(1f);
                   highButton.setAlpha(1f);
-
-                  if (high) {
-                      lowButton.setBackground(bg(Color.rgb(220,226,233), 14));
-                      lowButton.setTextColor(Color.rgb(92,112,136));
-                      highButton.setBackground(bg(Color.rgb(240,139,42), 14));
-                      highButton.setTextColor(Color.WHITE);
-                      popSelected(highButton);
-                  } else {
-                      lowButton.setBackground(bg(Color.rgb(13,125,246), 14));
-                      lowButton.setTextColor(Color.WHITE);
-                      highButton.setBackground(bg(Color.rgb(220,226,233), 14));
-                      highButton.setTextColor(Color.rgb(92,112,136));
-                      popSelected(lowButton);
-                  }
+                  lowButton.setTextColor(high ? inactive : Color.WHITE);
+                  highButton.setTextColor(high ? Color.WHITE : inactive);
               }
 
               private void showAck(String message, boolean success) {
@@ -3446,6 +3488,23 @@ jobs:
                   return b;
               }
 
+              private Button compactOverlayButton(String label) {
+                  Button b = new Button(this);
+                  b.setText(label);
+                  b.setTextColor(Color.rgb(92,112,136));
+                  b.setTextSize(13);
+                  b.setTypeface(b.getTypeface(), Typeface.BOLD);
+                  b.setAllCaps(false);
+                  b.setBackgroundColor(Color.TRANSPARENT);
+                  b.setMinHeight(0);
+                  b.setMinimumHeight(0);
+                  b.setMinWidth(0);
+                  b.setMinimumWidth(0);
+                  b.setPadding(0, 0, 0, 0);
+                  b.setStateListAnimator(null);
+                  return b;
+              }
+
               private EditText field(String hint, String value, boolean secret) {
                   EditText e = new EditText(this);
                   e.setHint(hint);
@@ -3507,6 +3566,317 @@ jobs:
                           }
                       } catch (Exception ignored) {}
                   });
+              }
+
+              public static class AnimatedPairView extends View {
+                  public static final int TYPE_MODE = 0;
+                  public static final int TYPE_SPEED = 1;
+
+                  private final int type;
+                  private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Path liquidPath = new Path();
+                  private final RectF left = new RectF();
+                  private final RectF right = new RectF();
+                  private final float density;
+                  private final ValueAnimator loop;
+
+                  private int selection = -1;
+                  private int previousSelection = -1;
+                  private boolean ready = true;
+                  private float phase = 0f;
+                  private float selectProgress = 1f;
+                  private float transferProgress = -1f;
+                  private int transferFrom = -1;
+                  private int transferTo = -1;
+                  private ValueAnimator selectAnimator;
+                  private ValueAnimator transferAnimator;
+
+                  public AnimatedPairView(Context context, int type) {
+                      super(context);
+                      this.type = type;
+                      density = getResources().getDisplayMetrics().density;
+                      setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+
+                      loop = ValueAnimator.ofFloat(0f, 1f);
+                      loop.setDuration(type == TYPE_SPEED ? 1800L : 2800L);
+                      loop.setRepeatCount(ValueAnimator.INFINITE);
+                      loop.setInterpolator(new LinearInterpolator());
+                      loop.addUpdateListener(a -> {
+                          phase = (float)a.getAnimatedValue();
+                          invalidate();
+                      });
+                      loop.start();
+                  }
+
+                  private float dpv(float v) {
+                      return v * density;
+                  }
+
+                  public void setReady(boolean value) {
+                      if (ready == value) return;
+                      ready = value;
+                      invalidate();
+                  }
+
+                  public void setSelection(int value) {
+                      if (selection == value) return;
+
+                      previousSelection = selection;
+                      selection = value;
+
+                      if (selectAnimator != null) selectAnimator.cancel();
+                      selectProgress = 0f;
+                      selectAnimator = ValueAnimator.ofFloat(0f, 1f);
+                      selectAnimator.setDuration(650L);
+                      selectAnimator.setInterpolator(
+                          new AccelerateDecelerateInterpolator()
+                      );
+                      selectAnimator.addUpdateListener(a -> {
+                          selectProgress = (float)a.getAnimatedValue();
+                          invalidate();
+                      });
+                      selectAnimator.start();
+
+                      if (
+                          type == TYPE_SPEED &&
+                          previousSelection >= 0 &&
+                          selection >= 0 &&
+                          previousSelection != selection
+                      ) {
+                          startTransfer(previousSelection, selection);
+                      }
+                  }
+
+                  private void startTransfer(int from, int to) {
+                      if (transferAnimator != null) transferAnimator.cancel();
+                      transferFrom = from;
+                      transferTo = to;
+                      transferProgress = 0f;
+                      transferAnimator = ValueAnimator.ofFloat(0f, 1f);
+                      transferAnimator.setDuration(580L);
+                      transferAnimator.setInterpolator(
+                          new AccelerateDecelerateInterpolator()
+                      );
+                      transferAnimator.addUpdateListener(a -> {
+                          transferProgress = (float)a.getAnimatedValue();
+                          invalidate();
+                      });
+                      transferAnimator.addListener(
+                          new AnimatorListenerAdapter() {
+                              @Override
+                              public void onAnimationEnd(Animator animation) {
+                                  transferProgress = -1f;
+                                  invalidate();
+                              }
+                          }
+                      );
+                      transferAnimator.start();
+                  }
+
+                  @Override
+                  protected void onDraw(Canvas canvas) {
+                      super.onDraw(canvas);
+
+                      float gap = dpv(12f);
+                      float radius = dpv(16f);
+                      float w = getWidth();
+                      float h = getHeight();
+                      float each = (w - gap) / 2f;
+
+                      left.set(0f, 0f, each, h);
+                      right.set(each + gap, 0f, w, h);
+
+                      drawInactive(canvas, left, radius);
+                      drawInactive(canvas, right, radius);
+
+                      if (!ready && type == TYPE_SPEED) {
+                          paint.setColor(Color.argb(80, 255, 255, 255));
+                          canvas.drawRoundRect(left, radius, radius, paint);
+                          canvas.drawRoundRect(right, radius, radius, paint);
+                          return;
+                      }
+
+                      if (selection == 0) {
+                          if (type == TYPE_MODE) {
+                              drawCool(canvas, left, radius);
+                          } else {
+                              drawLow(canvas, left, radius);
+                          }
+                      } else if (selection == 1) {
+                          if (type == TYPE_MODE) {
+                              drawFan(canvas, right, radius);
+                          } else {
+                              drawHigh(canvas, right, radius);
+                          }
+                      }
+
+                      if (type == TYPE_SPEED && transferProgress >= 0f) {
+                          drawTransfer(canvas);
+                      }
+                  }
+
+                  private void drawInactive(
+                      Canvas canvas,
+                      RectF rect,
+                      float radius
+                  ) {
+                      paint.setStyle(Paint.Style.FILL);
+                      paint.setColor(Color.rgb(220,226,233));
+                      paint.clearShadowLayer();
+                      canvas.drawRoundRect(rect, radius, radius, paint);
+                  }
+
+                  private void drawCool(
+                      Canvas canvas,
+                      RectF rect,
+                      float radius
+                  ) {
+                      canvas.save();
+                      canvas.clipPath(roundPath(rect, radius));
+
+                      float p = Math.max(0.02f, selectProgress);
+                      float top = rect.bottom - rect.height() * p;
+                      float wave = dpv(3.2f);
+                      float offset = (float)Math.sin(phase * Math.PI * 2.0)
+                          * dpv(4f);
+
+                      liquidPath.reset();
+                      liquidPath.moveTo(rect.left - dpv(8), top);
+                      liquidPath.cubicTo(
+                          rect.left + rect.width() * 0.28f,
+                          top - wave + offset * 0.15f,
+                          rect.left + rect.width() * 0.68f,
+                          top + wave - offset * 0.15f,
+                          rect.right + dpv(8),
+                          top
+                      );
+                      liquidPath.lineTo(rect.right + dpv(8), rect.bottom);
+                      liquidPath.lineTo(rect.left - dpv(8), rect.bottom);
+                      liquidPath.close();
+
+                      paint.setColor(Color.rgb(91,166,239));
+                      paint.setStyle(Paint.Style.FILL);
+                      canvas.drawPath(liquidPath, paint);
+
+                      paint.setColor(Color.argb(55,255,255,255));
+                      canvas.drawRect(
+                          rect.left,
+                          top,
+                          rect.right,
+                          Math.min(rect.bottom, top + dpv(4f)),
+                          paint
+                      );
+                      canvas.restore();
+                  }
+
+                  private void drawFan(
+                      Canvas canvas,
+                      RectF rect,
+                      float radius
+                  ) {
+                      paint.setColor(Color.rgb(48,190,197));
+                      canvas.drawRoundRect(rect, radius, radius, paint);
+
+                      canvas.save();
+                      canvas.clipPath(roundPath(rect, radius));
+                      float x = rect.left - rect.width() * 0.65f
+                          + phase * rect.width() * 2.3f;
+                      canvas.rotate(-18f, rect.centerX(), rect.centerY());
+                      paint.setColor(Color.argb(72,255,255,255));
+                      canvas.drawRect(
+                          x,
+                          rect.top - rect.height(),
+                          x + rect.width() * 0.28f,
+                          rect.bottom + rect.height(),
+                          paint
+                      );
+                      canvas.restore();
+                  }
+
+                  private void drawLow(
+                      Canvas canvas,
+                      RectF rect,
+                      float radius
+                  ) {
+                      paint.setColor(Color.rgb(127,180,239));
+                      canvas.drawRoundRect(rect, radius, radius, paint);
+
+                      float breath = (float)(
+                          (Math.sin(phase * Math.PI * 2.0) + 1.0) / 2.0
+                      );
+                      paint.setColor(
+                          Color.argb((int)(18 + 35 * breath),255,255,255)
+                      );
+                      canvas.drawRoundRect(rect, radius, radius, paint);
+                  }
+
+                  private void drawHigh(
+                      Canvas canvas,
+                      RectF rect,
+                      float radius
+                  ) {
+                      paint.setColor(Color.rgb(240,189,134));
+                      canvas.drawRoundRect(rect, radius, radius, paint);
+
+                      canvas.save();
+                      canvas.clipPath(roundPath(rect, radius));
+                      float fast = (phase * 1.75f) % 1f;
+                      float x = rect.left - rect.width() * 0.55f
+                          + fast * rect.width() * 2.1f;
+                      canvas.rotate(-18f, rect.centerX(), rect.centerY());
+                      paint.setColor(Color.argb(88,255,255,255));
+                      canvas.drawRect(
+                          x,
+                          rect.top - rect.height(),
+                          x + rect.width() * 0.22f,
+                          rect.bottom + rect.height(),
+                          paint
+                      );
+                      canvas.restore();
+                  }
+
+                  private void drawTransfer(Canvas canvas) {
+                      RectF from = transferFrom == 0 ? left : right;
+                      RectF to = transferTo == 0 ? left : right;
+
+                      float x = from.centerX()
+                          + (to.centerX() - from.centerX()) * transferProgress;
+                      float y = getHeight() / 2f;
+                      float peak = (float)Math.sin(
+                          transferProgress * Math.PI
+                      );
+                      float radius = dpv(5f + 2f * peak);
+
+                      int color = transferTo == 1
+                          ? Color.rgb(245,163,78)
+                          : Color.rgb(90,166,239);
+
+                      paint.setColor(Color.argb(70, Color.red(color),
+                          Color.green(color), Color.blue(color)));
+                      canvas.drawCircle(x, y, radius * 2.1f, paint);
+
+                      paint.setColor(color);
+                      canvas.drawCircle(x, y, radius, paint);
+                  }
+
+                  private Path roundPath(RectF rect, float radius) {
+                      Path path = new Path();
+                      path.addRoundRect(
+                          rect,
+                          radius,
+                          radius,
+                          Path.Direction.CW
+                      );
+                      return path;
+                  }
+
+                  @Override
+                  protected void onDetachedFromWindow() {
+                      if (loop != null) loop.cancel();
+                      if (selectAnimator != null) selectAnimator.cancel();
+                      if (transferAnimator != null) transferAnimator.cancel();
+                      super.onDetachedFromWindow();
+                  }
               }
 
               public static class PowerRingView extends FrameLayout {
@@ -3716,7 +4086,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.28_Visual_Power.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.29_Compact_Controls.apk
 
       - name: Verify APK signature
         env:
@@ -3726,23 +4096,23 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.28_Visual_Power.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.29_Compact_Controls.apk
 
       - name: Generate in-app update manifest
         shell: bash
         run: |
           set -euo pipefail
 
-          APK="AireSmart_Remote_v1.0.28_Visual_Power.apk"
+          APK="AireSmart_Remote_v1.0.29_Compact_Controls.apk"
           SHA256="$(sha256sum "$APK" | awk '{print $1}')"
 
           cat > latest.json <<EOF
           {
-            "versionCode": 32,
-            "versionName": "1.0.28",
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.28/${APK}",
+            "versionCode": 33,
+            "versionName": "1.0.29",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.29/${APK}",
             "sha256": "${SHA256}",
-            "notes": "Visual Power: animaciones de estados del botón principal en WebView + Caja Negra MQTT/ACK."
+            "notes": "Controles compactos animados: MODO y VELOCIDAD + Visual Power + Caja Negra MQTT/ACK."
           }
           EOF
 
@@ -3753,8 +4123,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="v1.0.28"
-          APK="AireSmart_Remote_v1.0.28_Visual_Power.apk"
+          TAG="v1.0.29"
+          APK="AireSmart_Remote_v1.0.29_Compact_Controls.apk"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload \
@@ -3767,8 +4137,8 @@ jobs:
               "$TAG" \
               "$APK" \
               latest.json \
-              --title "AireSmart Remote v1.0.28" \
-              --notes "AireSmart Visual Power: botón principal híbrido WebView con estados animados + Caja Negra."
+              --title "AireSmart Remote v1.0.29" \
+              --notes "AireSmart v1.0.29: controles compactos animados de MODO/VELOCIDAD + Visual Power + Caja Negra."
           fi
 
           # Fuerza esta release como la Latest Release de GitHub.
@@ -3782,7 +4152,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.28-Visual-Power
+          name: AireSmart-Remote-v1.0.29-Compact-Controls
           path: |
-            AireSmart_Remote_v1.0.28_Visual_Power.apk
+            AireSmart_Remote_v1.0.29_Compact_Controls.apk
             latest.json
