@@ -105,8 +105,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 24
-                  versionName "1.0.23"
+                  versionCode 25
+                  versionName "1.0.24"
               }
 
               signingConfigs {
@@ -1123,7 +1123,7 @@ jobs:
                   up.topMargin = dp(14);
                   root.addView(updateCard, up);
 
-                  TextView version = text("AireSmart Remote v1.0.23", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.24", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -1173,7 +1173,7 @@ jobs:
                               ).trim();
 
                           if (
-                              latestCode <= 24 ||
+                              latestCode <= 25 ||
                               latestName.isEmpty() ||
                               apkUrl.isEmpty() ||
                               sha256.length() != 64
@@ -1236,7 +1236,7 @@ jobs:
                       );
                       conn.setRequestProperty(
                           "User-Agent",
-                          "AireSmart-Android/" + "1.0.23"
+                          "AireSmart-Android/" + "1.0.24"
                       );
 
                       int code = conn.getResponseCode();
@@ -3224,7 +3224,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.23_Self_Update.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.24_Update_Test.apk
 
       - name: Verify APK signature
         env:
@@ -3234,23 +3234,23 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.23_Self_Update.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.24_Update_Test.apk
 
       - name: Generate in-app update manifest
         shell: bash
         run: |
           set -euo pipefail
 
-          APK="AireSmart_Remote_v1.0.23_Self_Update.apk"
+          APK="AireSmart_Remote_v1.0.24_Update_Test.apk"
           SHA256="$(sha256sum "$APK" | awk '{print $1}')"
 
           cat > latest.json <<EOF
           {
-            "versionCode": 24,
-            "versionName": "1.0.23",
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.23/${APK}",
+            "versionCode": 25,
+            "versionName": "1.0.24",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.24/${APK}",
             "sha256": "${SHA256}",
-            "notes": "Actualización de AireSmart desde la propia aplicación."
+            "notes": "Prueba del actualizador integrado de AireSmart."
           }
           EOF
 
@@ -3261,8 +3261,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="v1.0.23"
-          APK="AireSmart_Remote_v1.0.23_Self_Update.apk"
+          TAG="v1.0.24"
+          APK="AireSmart_Remote_v1.0.24_Update_Test.apk"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload \
@@ -3275,8 +3275,8 @@ jobs:
               "$TAG" \
               "$APK" \
               latest.json \
-              --title "AireSmart Remote v1.0.23" \
-              --notes "Primera versión con actualizaciones desde la propia aplicación."
+              --title "AireSmart Remote v1.0.24" \
+              --notes "Prueba de actualización automática desde AireSmart."
           fi
 
       - name: Remove decrypted key
@@ -3287,7 +3287,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.23-Self-Update-FIX
+          name: AireSmart-Remote-v1.0.24-Update-Test
           path: |
-            AireSmart_Remote_v1.0.23_Self_Update.apk
+            AireSmart_Remote_v1.0.24_Update_Test.apk
             latest.json
