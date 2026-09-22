@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 33
-                  versionName "1.0.29"
+                  versionCode 34
+                  versionName "1.0.30"
               }
 
               signingConfigs {
@@ -299,7 +299,7 @@ jobs:
             </section>
             <section class="card"><div class="head"><b>Eventos</b><span id="eventCount">0 eventos</span></div><div class="filters"><button class="chip active" data-filter="all">Todos</button><button class="chip" data-filter="cmd">Órdenes</button><button class="chip" data-filter="mqtt">MQTT</button><button class="chip" data-filter="ack">ACK</button><button class="chip" data-filter="state">Estado</button><button class="chip" data-filter="error">Errores</button></div><div class="timeline" id="timeline"><div class="empty">Cargando…</div></div></section>
             <section class="card"><div class="head"><b>Acciones</b><span>diagnóstico</span></div><div class="actions"><button class="btn primary" id="refreshBtn">Actualizar</button><button class="btn" id="copyBtn">Copiar diagnóstico</button><button class="btn" id="exportBtn">Exportar registro</button><button class="btn danger" id="clearBtn">Borrar historial</button></div></section>
-            <div class="footer">AireSmart v1.0.29 • Compact Controls</div>
+            <div class="footer">AireSmart v1.0.30 • Speed Transfer Fix</div>
           </div><script src="ui.js"></script><script src="bridge.js"></script></body></html>
           EOF
 
@@ -765,7 +765,11 @@ jobs:
                           latency
                       );
                       showAck("SIN CONFIRMACIÓN · revisa conexión", false);
+                      if (speedVisual != null) {
+                          speedVisual.cancelPendingSelection();
+                      }
                       clearPendingCommand();
+                      paintSpeedButtons();
                       restoreRing();
                   }
               };
@@ -3110,6 +3114,14 @@ jobs:
               }
 
               private void sendSpeed(boolean makeHigh) {
+                  if (pendingId != null) {
+                      return;
+                  }
+
+                  if (speedVisual != null) {
+                      speedVisual.beginPendingSelection(makeHigh ? 1 : 0);
+                  }
+
                   sendCommand("speed", makeHigh ? "high" : "low", false);
               }
 
@@ -3260,7 +3272,10 @@ jobs:
               }
 
               private void paintSpeedButtons() {
-                  boolean ready = motorOn;
+                  boolean speedPending =
+                      pendingId != null &&
+                      "speed".equals(pendingAction);
+                  boolean ready = motorOn || speedPending;
                   int inactive = Color.rgb(92,112,136);
 
                   coolButton.setEnabled(true);
@@ -3285,14 +3300,29 @@ jobs:
                       modeSelection == 1 ? Color.WHITE : inactive
                   );
 
-                  lowButton.setEnabled(ready);
-                  highButton.setEnabled(ready);
+                  lowButton.setEnabled(ready && !speedPending);
+                  highButton.setEnabled(ready && !speedPending);
+
+                  int visualSpeedSelection = high ? 1 : 0;
+                  if (
+                      speedPending &&
+                      speedVisual != null &&
+                      speedVisual.getSelection() >= 0
+                  ) {
+                      visualSpeedSelection = speedVisual.getSelection();
+                  }
 
                   if (speedVisual != null) {
                       speedVisual.setReady(ready);
-                      speedVisual.setSelection(
-                          ready ? (high ? 1 : 0) : -1
-                      );
+
+                      // Durante la pausa de protección el ESP32 puede reportar
+                      // motor=false. No borrar la selección: conservar el botón
+                      // origen hasta que ACK/state confirme el destino.
+                      if (!speedPending) {
+                          speedVisual.setSelection(
+                              ready ? (high ? 1 : 0) : -1
+                          );
+                      }
                   }
 
                   if (!ready) {
@@ -3305,8 +3335,16 @@ jobs:
 
                   lowButton.setAlpha(1f);
                   highButton.setAlpha(1f);
-                  lowButton.setTextColor(high ? inactive : Color.WHITE);
-                  highButton.setTextColor(high ? Color.WHITE : inactive);
+                  lowButton.setTextColor(
+                      visualSpeedSelection == 0
+                          ? Color.WHITE
+                          : inactive
+                  );
+                  highButton.setTextColor(
+                      visualSpeedSelection == 1
+                          ? Color.WHITE
+                          : inactive
+                  );
               }
 
               private void showAck(String message, boolean success) {
@@ -3582,6 +3620,7 @@ jobs:
 
                   private int selection = -1;
                   private int previousSelection = -1;
+                  private int pendingSelection = -1;
                   private boolean ready = true;
                   private float phase = 0f;
                   private float selectProgress = 1f;
@@ -3618,8 +3657,55 @@ jobs:
                       invalidate();
                   }
 
+                  public int getSelection() {
+                      return selection;
+                  }
+
+                  public void cancelPendingSelection() {
+                      pendingSelection = -1;
+                      if (transferAnimator != null) {
+                          transferAnimator.cancel();
+                      }
+                      transferProgress = -1f;
+                      invalidate();
+                  }
+
+                  public void beginPendingSelection(int value) {
+                      if (
+                          type != TYPE_SPEED ||
+                          value < 0 ||
+                          value > 1
+                      ) {
+                          return;
+                      }
+
+                      pendingSelection = value;
+
+                      if (
+                          selection >= 0 &&
+                          selection != value
+                      ) {
+                          startTransfer(selection, value);
+                      }
+
+                      invalidate();
+                  }
+
                   public void setSelection(int value) {
-                      if (selection == value) return;
+                      if (selection == value) {
+                          if (
+                              type == TYPE_SPEED &&
+                              pendingSelection == value
+                          ) {
+                              pendingSelection = -1;
+                              invalidate();
+                          }
+                          return;
+                      }
+
+                      boolean pendingCommit =
+                          type == TYPE_SPEED &&
+                          pendingSelection == value;
 
                       previousSelection = selection;
                       selection = value;
@@ -3641,9 +3727,14 @@ jobs:
                           type == TYPE_SPEED &&
                           previousSelection >= 0 &&
                           selection >= 0 &&
-                          previousSelection != selection
+                          previousSelection != selection &&
+                          !pendingCommit
                       ) {
                           startTransfer(previousSelection, selection);
+                      }
+
+                      if (pendingCommit) {
+                          pendingSelection = -1;
                       }
                   }
 
@@ -3712,6 +3803,18 @@ jobs:
 
                       if (type == TYPE_SPEED && transferProgress >= 0f) {
                           drawTransfer(canvas);
+                      }
+
+                      if (
+                          type == TYPE_SPEED &&
+                          pendingSelection >= 0
+                      ) {
+                          drawPendingTarget(
+                              canvas,
+                              pendingSelection == 0 ? left : right,
+                              radius,
+                              pendingSelection
+                          );
                       }
                   }
 
@@ -3857,6 +3960,45 @@ jobs:
 
                       paint.setColor(color);
                       canvas.drawCircle(x, y, radius, paint);
+                  }
+
+                  private void drawPendingTarget(
+                      Canvas canvas,
+                      RectF rect,
+                      float radius,
+                      int target
+                  ) {
+                      float pulse = (float)(
+                          (Math.sin(phase * Math.PI * 2.0) + 1.0) / 2.0
+                      );
+                      int color = target == 1
+                          ? Color.rgb(245,163,78)
+                          : Color.rgb(90,166,239);
+
+                      paint.setStyle(Paint.Style.STROKE);
+                      paint.setStrokeWidth(dpv(2f));
+                      paint.setColor(
+                          Color.argb(
+                              (int)(95 + 110 * pulse),
+                              Color.red(color),
+                              Color.green(color),
+                              Color.blue(color)
+                          )
+                      );
+                      paint.setShadowLayer(
+                          dpv(6f + 4f * pulse),
+                          0f,
+                          0f,
+                          color
+                      );
+                      canvas.drawRoundRect(
+                          rect,
+                          radius,
+                          radius,
+                          paint
+                      );
+                      paint.clearShadowLayer();
+                      paint.setStyle(Paint.Style.FILL);
                   }
 
                   private Path roundPath(RectF rect, float radius) {
@@ -4086,7 +4228,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.29_Compact_Controls.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.30_Speed_Transfer_Fix.apk
 
       - name: Verify APK signature
         env:
@@ -4096,21 +4238,21 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.29_Compact_Controls.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.30_Speed_Transfer_Fix.apk
 
       - name: Generate in-app update manifest
         shell: bash
         run: |
           set -euo pipefail
 
-          APK="AireSmart_Remote_v1.0.29_Compact_Controls.apk"
+          APK="AireSmart_Remote_v1.0.30_Speed_Transfer_Fix.apk"
           SHA256="$(sha256sum "$APK" | awk '{print $1}')"
 
           cat > latest.json <<EOF
           {
-            "versionCode": 33,
-            "versionName": "1.0.29",
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.29/${APK}",
+            "versionCode": 34,
+            "versionName": "1.0.30",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.30/${APK}",
             "sha256": "${SHA256}",
             "notes": "Controles compactos animados: MODO y VELOCIDAD + Visual Power + Caja Negra MQTT/ACK."
           }
@@ -4123,8 +4265,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="v1.0.29"
-          APK="AireSmart_Remote_v1.0.29_Compact_Controls.apk"
+          TAG="v1.0.30"
+          APK="AireSmart_Remote_v1.0.30_Speed_Transfer_Fix.apk"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload \
@@ -4137,7 +4279,7 @@ jobs:
               "$TAG" \
               "$APK" \
               latest.json \
-              --title "AireSmart Remote v1.0.29" \
+              --title "AireSmart Remote v1.0.30" \
               --notes "AireSmart v1.0.29: controles compactos animados de MODO/VELOCIDAD + Visual Power + Caja Negra."
           fi
 
@@ -4152,7 +4294,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.29-Compact-Controls
+          name: AireSmart-Remote-v1.0.30-Speed-Transfer-Fix
           path: |
-            AireSmart_Remote_v1.0.29_Compact_Controls.apk
+            AireSmart_Remote_v1.0.30_Speed_Transfer_Fix.apk
             latest.json
