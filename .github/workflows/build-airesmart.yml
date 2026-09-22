@@ -6,6 +6,9 @@ on:
     paths:
       - '.github/workflows/build-airesmart.yml'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -102,8 +105,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 30
-                  versionName "1.0.22"
+                  versionCode 24
+                  versionName "1.0.23"
               }
 
               signingConfigs {
@@ -163,6 +166,7 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
               <application
                   android:allowBackup="false"
                   android:label="AireSmart"
@@ -185,10 +189,12 @@ jobs:
 
           import android.app.Activity;
           import android.app.AlertDialog;
+          import android.app.DownloadManager;
           import android.animation.ValueAnimator;
           import android.animation.Animator;
           import android.animation.AnimatorListenerAdapter;
           import android.content.Context;
+          import android.content.Intent;
           import android.content.SharedPreferences;
           import android.graphics.Canvas;
           import android.graphics.Color;
@@ -197,9 +203,12 @@ jobs:
           import android.graphics.Typeface;
           import android.graphics.drawable.GradientDrawable;
           import android.os.Bundle;
+          import android.os.Build;
+          import android.os.Environment;
           import android.os.Handler;
           import android.os.Looper;
           import android.provider.Settings;
+          import android.net.Uri;
           import android.security.keystore.KeyGenParameterSpec;
           import android.security.keystore.KeyProperties;
           import android.text.InputType;
@@ -252,6 +261,18 @@ jobs:
               private TextView cloudStatus, detailState, systemState, heroSub, ackState;
               private Button coolButton, fanButton, lowButton, highButton;
               private PowerRingView powerRing;
+
+              private LinearLayout updateCard;
+              private TextView updateTitle;
+              private TextView updateDetail;
+              private Button updateButton;
+
+              private String availableUpdateVersion = "";
+              private String availableUpdateApkUrl = "";
+              private String availableUpdateSha256 = "";
+
+              private static final String UPDATE_MANIFEST_URL =
+                  "https://github.com/valdezelias231-beep/AireSmart-Android/releases/latest/download/latest.json";
 
               private static final String PAIR_API =
                   "https://airesmart-pairing-api.valdezelias231.workers.dev/pair";
@@ -491,6 +512,8 @@ jobs:
                   } else {
                       connectMqtt();
                   }
+
+                  checkForUpdates();
               }
 
               private View buildPairingUi() {
@@ -1052,13 +1075,543 @@ jobs:
                   ackCard.addView(ackState);
                   root.addView(ackCard);
 
-                  TextView version = text("AireSmart Remote v1.0.22", 10, Color.rgb(132,148,167), false);
+                  updateCard = card();
+                  updateCard.setVisibility(View.GONE);
+                  updateCard.setPadding(
+                      dp(18),
+                      dp(15),
+                      dp(18),
+                      dp(15)
+                  );
+
+                  updateTitle = text(
+                      "ACTUALIZACIÓN DISPONIBLE",
+                      12,
+                      Color.rgb(24,95,158),
+                      true
+                  );
+                  updateTitle.setGravity(Gravity.START);
+                  updateCard.addView(updateTitle);
+
+                  space(updateCard, 5);
+
+                  updateDetail = text(
+                      "",
+                      11,
+                      Color.rgb(99,119,143),
+                      false
+                  );
+                  updateDetail.setGravity(Gravity.START);
+                  updateCard.addView(updateDetail);
+
+                  space(updateCard, 10);
+
+                  updateButton = button(
+                      "ACTUALIZAR",
+                      Color.rgb(13,125,246)
+                  );
+                  updateButton.setOnClickListener(
+                      v -> downloadAndInstallUpdate()
+                  );
+                  addPressEffect(updateButton);
+                  updateCard.addView(
+                      updateButton,
+                      lp(-1, 52)
+                  );
+
+                  LinearLayout.LayoutParams up = lp(-1, -2);
+                  up.topMargin = dp(14);
+                  root.addView(updateCard, up);
+
+                  TextView version = text("AireSmart Remote v1.0.23", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
 
                   animateEntrance(root);
                   return scroll;
+              }
+
+              private void checkForUpdates() {
+                  io.execute(() -> {
+                      try {
+                          String raw = fetchHttpsText(
+                              UPDATE_MANIFEST_URL
+                          );
+
+                          if (raw == null || raw.trim().isEmpty()) {
+                              return;
+                          }
+
+                          JSONObject latest = new JSONObject(raw);
+
+                          int latestCode =
+                              latest.optInt("versionCode", 0);
+
+                          String latestName =
+                              latest.optString(
+                                  "versionName",
+                                  ""
+                              ).trim();
+
+                          String apkUrl =
+                              latest.optString(
+                                  "apkUrl",
+                                  ""
+                              ).trim();
+
+                          String sha256 =
+                              latest.optString(
+                                  "sha256",
+                                  ""
+                              ).trim().toLowerCase();
+
+                          String notes =
+                              latest.optString(
+                                  "notes",
+                                  ""
+                              ).trim();
+
+                          if (
+                              latestCode <= BuildConfig.VERSION_CODE ||
+                              latestName.isEmpty() ||
+                              apkUrl.isEmpty() ||
+                              sha256.length() != 64
+                          ) {
+                              return;
+                          }
+
+                          availableUpdateVersion = latestName;
+                          availableUpdateApkUrl = apkUrl;
+                          availableUpdateSha256 = sha256;
+
+                          runOnUiThread(() -> {
+                              if (updateCard == null) {
+                                  return;
+                              }
+
+                              updateTitle.setText(
+                                  "ACTUALIZACIÓN DISPONIBLE · v" +
+                                  availableUpdateVersion
+                              );
+
+                              updateDetail.setText(
+                                  notes.isEmpty()
+                                      ? "Nueva versión de AireSmart lista para instalar."
+                                      : notes
+                              );
+
+                              updateButton.setText("ACTUALIZAR");
+                              updateButton.setEnabled(true);
+                              updateButton.setAlpha(1f);
+                              updateCard.setVisibility(View.VISIBLE);
+                          });
+
+                      } catch (Exception ignored) {
+                          // Si GitHub no responde, la app sigue funcionando
+                          // normalmente y simplemente oculta el aviso.
+                      }
+                  });
+              }
+
+              private String fetchHttpsText(String initialUrl)
+                  throws Exception {
+
+                  String currentUrl = initialUrl;
+
+                  for (int redirect = 0; redirect < 6; redirect++) {
+                      URL url = new URL(currentUrl);
+
+                      HttpsURLConnection conn =
+                          (HttpsURLConnection) url.openConnection();
+
+                      conn.setRequestMethod("GET");
+                      conn.setConnectTimeout(10000);
+                      conn.setReadTimeout(12000);
+                      conn.setUseCaches(false);
+                      conn.setInstanceFollowRedirects(false);
+                      conn.setRequestProperty(
+                          "Accept",
+                          "application/json"
+                      );
+                      conn.setRequestProperty(
+                          "User-Agent",
+                          "AireSmart-Android/" + BuildConfig.VERSION_NAME
+                      );
+
+                      int code = conn.getResponseCode();
+
+                      if (
+                          code == 301 ||
+                          code == 302 ||
+                          code == 303 ||
+                          code == 307 ||
+                          code == 308
+                      ) {
+                          String location =
+                              conn.getHeaderField("Location");
+
+                          conn.disconnect();
+
+                          if (
+                              location == null ||
+                              location.trim().isEmpty()
+                          ) {
+                              throw new IllegalStateException(
+                                  "update_redirect_without_location"
+                              );
+                          }
+
+                          currentUrl = new URL(
+                              url,
+                              location
+                          ).toString();
+
+                          continue;
+                      }
+
+                      if (code < 200 || code >= 300) {
+                          conn.disconnect();
+                          throw new IllegalStateException(
+                              "update_manifest_http_" + code
+                          );
+                      }
+
+                      StringBuilder result =
+                          new StringBuilder();
+
+                      try (
+                          BufferedReader reader =
+                              new BufferedReader(
+                                  new InputStreamReader(
+                                      conn.getInputStream(),
+                                      StandardCharsets.UTF_8
+                                  )
+                              )
+                      ) {
+                          String line;
+
+                          while ((line = reader.readLine()) != null) {
+                              result.append(line);
+                          }
+                      } finally {
+                          conn.disconnect();
+                      }
+
+                      return result.toString();
+                  }
+
+                  throw new IllegalStateException(
+                      "too_many_update_redirects"
+                  );
+              }
+
+              private void downloadAndInstallUpdate() {
+                  if (
+                      availableUpdateApkUrl.isEmpty() ||
+                      availableUpdateSha256.length() != 64
+                  ) {
+                      toast("No hay una actualización lista");
+                      return;
+                  }
+
+                  if (
+                      Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                      !getPackageManager().canRequestPackageInstalls()
+                  ) {
+                      try {
+                          Intent settingsIntent = new Intent(
+                              Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                              Uri.parse(
+                                  "package:" + getPackageName()
+                              )
+                          );
+
+                          startActivity(settingsIntent);
+
+                          toast(
+                              "Activa “Permitir desde esta fuente” " +
+                              "y vuelve a tocar ACTUALIZAR"
+                          );
+                      } catch (Exception error) {
+                          toast(
+                              "Android debe permitir instalar " +
+                              "actualizaciones desde AireSmart"
+                          );
+                      }
+
+                      return;
+                  }
+
+                  try {
+                      DownloadManager manager =
+                          (DownloadManager) getSystemService(
+                              DOWNLOAD_SERVICE
+                          );
+
+                      if (manager == null) {
+                          throw new IllegalStateException(
+                              "download_manager_unavailable"
+                          );
+                      }
+
+                      String fileName =
+                          "AireSmart_Update_v" +
+                          availableUpdateVersion +
+                          ".apk";
+
+                      DownloadManager.Request request =
+                          new DownloadManager.Request(
+                              Uri.parse(
+                                  availableUpdateApkUrl
+                              )
+                          );
+
+                      request.setTitle(
+                          "Actualizando AireSmart"
+                      );
+
+                      request.setDescription(
+                          "Descargando v" +
+                          availableUpdateVersion
+                      );
+
+                      request.setMimeType(
+                          "application/vnd.android.package-archive"
+                      );
+
+                      request.setAllowedOverMetered(true);
+                      request.setAllowedOverRoaming(false);
+                      request.setNotificationVisibility(
+                          DownloadManager.Request
+                              .VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+                      );
+
+                      request.setDestinationInExternalFilesDir(
+                          this,
+                          Environment.DIRECTORY_DOWNLOADS,
+                          fileName
+                      );
+
+                      long downloadId =
+                          manager.enqueue(request);
+
+                      updateButton.setEnabled(false);
+                      updateButton.setAlpha(0.7f);
+                      updateButton.setText("DESCARGANDO…");
+                      updateDetail.setText(
+                          "Descargando y verificando la actualización."
+                      );
+
+                      io.execute(
+                          () -> waitForUpdateDownload(
+                              manager,
+                              downloadId
+                          )
+                      );
+
+                  } catch (Exception error) {
+                      updateButton.setEnabled(true);
+                      updateButton.setAlpha(1f);
+                      updateButton.setText("ACTUALIZAR");
+                      toast("No se pudo iniciar la descarga");
+                  }
+              }
+
+              private void waitForUpdateDownload(
+                  DownloadManager manager,
+                  long downloadId
+              ) {
+                  for (int attempt = 0; attempt < 240; attempt++) {
+                      DownloadManager.Query query =
+                          new DownloadManager.Query();
+
+                      query.setFilterById(downloadId);
+
+                      try (
+                          android.database.Cursor cursor =
+                              manager.query(query)
+                      ) {
+                          if (
+                              cursor != null &&
+                              cursor.moveToFirst()
+                          ) {
+                              int statusIndex =
+                                  cursor.getColumnIndex(
+                                      DownloadManager.COLUMN_STATUS
+                                  );
+
+                              int status =
+                                  statusIndex >= 0
+                                      ? cursor.getInt(statusIndex)
+                                      : DownloadManager.STATUS_FAILED;
+
+                              if (
+                                  status ==
+                                  DownloadManager.STATUS_SUCCESSFUL
+                              ) {
+                                  Uri apkUri =
+                                      manager.getUriForDownloadedFile(
+                                          downloadId
+                                      );
+
+                                  if (apkUri == null) {
+                                      updateFailed(
+                                          "No se pudo abrir el APK descargado"
+                                      );
+                                      return;
+                                  }
+
+                                  try {
+                                      String downloadedSha =
+                                          sha256OfUri(apkUri);
+
+                                      if (
+                                          !availableUpdateSha256.equalsIgnoreCase(
+                                              downloadedSha
+                                          )
+                                      ) {
+                                          manager.remove(downloadId);
+
+                                          updateFailed(
+                                              "La verificación de seguridad falló"
+                                          );
+                                          return;
+                                      }
+
+                                      runOnUiThread(
+                                          () -> installDownloadedApk(
+                                              apkUri
+                                          )
+                                      );
+
+                                  } catch (Exception error) {
+                                      updateFailed(
+                                          "No se pudo verificar la actualización"
+                                      );
+                                  }
+
+                                  return;
+                              }
+
+                              if (
+                                  status ==
+                                  DownloadManager.STATUS_FAILED
+                              ) {
+                                  updateFailed(
+                                      "La descarga de la actualización falló"
+                                  );
+                                  return;
+                              }
+                          }
+                      } catch (Exception error) {
+                          updateFailed(
+                              "No se pudo comprobar la descarga"
+                          );
+                          return;
+                      }
+
+                      try {
+                          Thread.sleep(500);
+                      } catch (InterruptedException ignored) {
+                          Thread.currentThread().interrupt();
+                          return;
+                      }
+                  }
+
+                  updateFailed(
+                      "La descarga tardó demasiado"
+                  );
+              }
+
+              private String sha256OfUri(Uri uri)
+                  throws Exception {
+
+                  MessageDigest digest =
+                      MessageDigest.getInstance("SHA-256");
+
+                  try (
+                      InputStream input =
+                          getContentResolver().openInputStream(uri)
+                  ) {
+                      if (input == null) {
+                          throw new IllegalStateException(
+                              "update_file_unavailable"
+                          );
+                      }
+
+                      byte[] buffer = new byte[8192];
+                      int read;
+
+                      while ((read = input.read(buffer)) != -1) {
+                          digest.update(
+                              buffer,
+                              0,
+                              read
+                          );
+                      }
+                  }
+
+                  byte[] hash = digest.digest();
+                  StringBuilder hex = new StringBuilder();
+
+                  for (byte b : hash) {
+                      hex.append(
+                          String.format(
+                              "%02x",
+                              b & 0xff
+                          )
+                      );
+                  }
+
+                  return hex.toString();
+              }
+
+              private void installDownloadedApk(Uri apkUri) {
+                  try {
+                      updateButton.setText("INSTALANDO…");
+                      updateDetail.setText(
+                          "Android abrirá el instalador para confirmar."
+                      );
+
+                      Intent install = new Intent(
+                          Intent.ACTION_VIEW
+                      );
+
+                      install.setDataAndType(
+                          apkUri,
+                          "application/vnd.android.package-archive"
+                      );
+
+                      install.addFlags(
+                          Intent.FLAG_ACTIVITY_NEW_TASK |
+                          Intent.FLAG_GRANT_READ_URI_PERMISSION
+                      );
+
+                      startActivity(install);
+
+                  } catch (Exception error) {
+                      updateFailed(
+                          "No se pudo abrir el instalador de Android"
+                      );
+                  }
+              }
+
+              private void updateFailed(String message) {
+                  runOnUiThread(() -> {
+                      if (updateButton != null) {
+                          updateButton.setEnabled(true);
+                          updateButton.setAlpha(1f);
+                          updateButton.setText("REINTENTAR");
+                      }
+
+                      if (updateDetail != null) {
+                          updateDetail.setText(message);
+                          updateDetail.setTextColor(
+                              Color.rgb(201,54,64)
+                          );
+                      }
+                  });
               }
 
               private void showConnectionDialog() {
@@ -2671,7 +3224,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.22_RESTORE.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.23_Self_Update.apk
 
       - name: Verify APK signature
         env:
@@ -2681,7 +3234,50 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.22_RESTORE.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.23_Self_Update.apk
+
+      - name: Generate in-app update manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK="AireSmart_Remote_v1.0.23_Self_Update.apk"
+          SHA256="$(sha256sum "$APK" | awk '{print $1}')"
+
+          cat > latest.json <<EOF
+          {
+            "versionCode": 24,
+            "versionName": "1.0.23",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.23/${APK}",
+            "sha256": "${SHA256}",
+            "notes": "Actualización de AireSmart desde la propia aplicación."
+          }
+          EOF
+
+      - name: Publish permanent AireSmart release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          TAG="v1.0.23"
+          APK="AireSmart_Remote_v1.0.23_Self_Update.apk"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload \
+              "$TAG" \
+              "$APK" \
+              latest.json \
+              --clobber
+          else
+            gh release create \
+              "$TAG" \
+              "$APK" \
+              latest.json \
+              --title "AireSmart Remote v1.0.23" \
+              --notes "Primera versión con actualizaciones desde la propia aplicación."
+          fi
 
       - name: Remove decrypted key
         if: always()
@@ -2691,5 +3287,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.22-RESTORE
-          path: AireSmart_Remote_v1.0.22_RESTORE.apk
+          name: AireSmart-Remote-v1.0.23-Self-Update
+          path: |
+            AireSmart_Remote_v1.0.23_Self_Update.apk
+            latest.json
