@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AireSmart • Flip 3D Pulido</title>
+<style>
+:root{
+  --bg1:#eef1f5;
+  --bg2:#e7ebf1;
+  --text:#17345a;
+  --muted:#7b8798;
+  --blue:#79afe8;
+  --blue2:#96c4f2;
+  --orange:#edb16f;
+  --orange2:#f5ca98;
+  --teal:#31bdc3;
+  --amber:#f0a04a;
+}
+*{box-sizing:border-box}
+html,body{
+  margin:0;min-height:100%;
+  font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  background:linear-gradient(var(--bg1),var(--bg2));
+  color:var(--text);
+}
+body{display:flex;justify-content:center}
+.app{width:min(470px,100%);padding:24px 18px 38px}
+.card{
+  background:rgba(248,249,250,.96);
+  border:1px solid rgba(255,255,255,.92);
+  border-radius:28px;
+  box-shadow:0 10px 25px rgba(28,38,55,.11);
+}
+
+/* HERO */
+.hero{padding:28px 18px;text-align:center}
+.ring{
+  width:210px;height:210px;border-radius:50%;
+  margin:auto;display:grid;place-items:center;
+  border:13px solid var(--teal);
+  box-shadow:0 0 0 7px rgba(49,189,195,.12),0 0 24px rgba(49,189,195,.16);
+  transition:.35s ease;
+}
+.hero.changing .ring{
+  border-color:var(--amber);
+  box-shadow:0 0 0 7px rgba(240,160,74,.14),0 0 24px rgba(240,160,74,.18);
+}
+.power{
+  width:160px;height:160px;border-radius:50%;
+  display:grid;place-items:center;
+  background:linear-gradient(#fbfcfd,#f1f3f6);
+  border:1px solid #dce2ea;
+}
+.power svg{width:70px;height:70px}
+.power path{stroke:var(--teal);transition:.35s}
+.hero.changing .power path{stroke:var(--amber)}
+.title{
+  margin-top:24px;font-size:24px;font-weight:900;color:var(--teal);
+  transition:.35s;
+}
+.hero.changing .title{color:#e58b2d}
+.sub{margin-top:5px;color:var(--muted);font-size:13px}
+
+/* SPEED */
+.section{margin-top:20px;padding:20px 18px}
+.section h3{margin:0 0 12px;font-size:12px;color:#60728a}
+
+.speed-stage{
+  perspective:900px;
+  position:relative;
+}
+.row{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:18px;
+}
+.btn{
+  height:60px;
+  border:0;
+  border-radius:16px;
+  background:#dfe5ec;
+  color:#718096;
+  font-size:14px;
+  font-weight:900;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.72),
+    0 5px 12px rgba(40,50,66,.09);
+  transform-style:preserve-3d;
+  backface-visibility:hidden;
+  transition:background .25s,color .25s,box-shadow .25s;
+}
+.btn.active.low{
+  background:linear-gradient(#91c0f1,#78afe8);
+  color:#fff;
+  box-shadow:0 7px 14px rgba(88,164,235,.18);
+}
+.btn.active.high{
+  background:linear-gradient(#f4c894,#edb370);
+  color:#fff;
+  box-shadow:0 7px 14px rgba(242,161,76,.18);
+}
+
+/* refined 3D motion */
+.btn.flip-out-left{
+  animation:flipOutLeft .68s cubic-bezier(.28,.72,.2,1) forwards;
+}
+.btn.flip-out-right{
+  animation:flipOutRight .68s cubic-bezier(.28,.72,.2,1) forwards;
+}
+@keyframes flipOutLeft{
+  0%{transform:rotateY(0deg) translateZ(0) scale(1);filter:brightness(1)}
+  45%{transform:rotateY(11deg) translateZ(-7px) scale(.985);filter:brightness(.97)}
+  100%{transform:rotateY(18deg) translateZ(-14px) scale(.972);filter:brightness(.92)}
+}
+@keyframes flipOutRight{
+  0%{transform:rotateY(0deg) translateZ(0) scale(1);filter:brightness(1)}
+  45%{transform:rotateY(-11deg) translateZ(-7px) scale(.985);filter:brightness(.97)}
+  100%{transform:rotateY(-18deg) translateZ(-14px) scale(.972);filter:brightness(.92)}
+}
+
+.btn.flip-in-left{
+  animation:flipInLeft .7s cubic-bezier(.18,.82,.2,1) forwards;
+}
+.btn.flip-in-right{
+  animation:flipInRight .7s cubic-bezier(.18,.82,.2,1) forwards;
+}
+@keyframes flipInLeft{
+  0%{transform:rotateY(-20deg) translateZ(-14px) scale(.97);filter:brightness(.93)}
+  58%{transform:rotateY(3deg) translateZ(3px) scale(1.01);filter:brightness(1.04)}
+  100%{transform:rotateY(0deg) translateZ(0) scale(1);filter:brightness(1)}
+}
+@keyframes flipInRight{
+  0%{transform:rotateY(20deg) translateZ(-14px) scale(.97);filter:brightness(.93)}
+  58%{transform:rotateY(-3deg) translateZ(3px) scale(1.01);filter:brightness(1.04)}
+  100%{transform:rotateY(0deg) translateZ(0) scale(1);filter:brightness(1)}
+}
+
+/* subtle glow */
+.glow{
+  position:absolute;
+  bottom:-3px;
+  width:34%;
+  height:9px;
+  border-radius:999px;
+  filter:blur(8px);
+  opacity:0;
+  pointer-events:none;
+}
+.glow.low{left:8%;background:rgba(88,164,235,.30)}
+.glow.high{right:8%;background:rgba(242,161,76,.30)}
+.glow.show{animation:glowPulse .72s ease-out}
+@keyframes glowPulse{
+  0%{opacity:0;transform:scaleX(.7)}
+  45%{opacity:.48;transform:scaleX(1)}
+  100%{opacity:0;transform:scaleX(1.14)}
+}
+
+.status{
+  margin-top:16px;text-align:center;min-height:18px;
+  font-size:12px;color:#29995a;
+}
+.controls{display:flex;gap:10px;margin-top:16px}
+.controls button{
+  flex:1;border:0;border-radius:14px;padding:12px;
+  background:#20262e;color:#fff;font-weight:800;
+}
+.controls button.alt{background:#fff;color:#3c4a5d}
+.note{
+  margin-top:14px;padding:10px;border-radius:16px;
+  background:rgba(255,255,255,.55);
+  color:#758195;font-size:11px;line-height:1.45;
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <section class="card hero" id="hero">
+    <div class="ring">
+      <div class="power">
+        <svg viewBox="0 0 100 100" fill="none">
+          <path d="M50 18V46" stroke-width="7" stroke-linecap="round"/>
+          <path d="M34 31C24 38 18 48 18 59C18 77 32 91 50 91C68 91 82 77 82 59C82 48 76 38 66 31" stroke-width="7" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+    <div class="title" id="title">SOLO AIRE · BAJA</div>
+    <div class="sub" id="sub">Ventilación sin bomba</div>
+  </section>
+
+  <section class="card section">
+    <h3>VELOCIDAD</h3>
+
+    <div class="speed-stage">
+      <div class="row">
+        <button class="btn active low" id="low">BAJA</button>
+        <button class="btn high" id="high">ALTA</button>
+      </div>
+      <div class="glow low" id="glowLow"></div>
+      <div class="glow high" id="glowHigh"></div>
+    </div>
+
+    <div class="status" id="status">LISTO</div>
+
+    <div class="controls">
+      <button id="toHigh">BAJA → ALTA</button>
+      <button class="alt" id="toLow">ALTA → BAJA</button>
+    </div>
+
+    <div class="note">
+      Versión pulida: giro menos exagerado, rebote suave y glow más discreto.
+    </div>
+  </section>
+
+</div>
+
+<script>
+const hero=document.getElementById('hero');
+const low=document.getElementById('low');
+const high=document.getElementById('high');
+const glowLow=document.getElementById('glowLow');
+const glowHigh=document.getElementById('glowHigh');
+const title=document.getElementById('title');
+const sub=document.getElementById('sub');
+const status=document.getElementById('status');
+
+let current='low';
+let busy=false;
+
+function finish(){
+  low.className='btn low'+(current==='low'?' active':'');
+  high.className='btn high'+(current==='high'?' active':'');
+  glowLow.className='glow low';
+  glowHigh.className='glow high';
+
+  hero.classList.remove('changing');
+  title.textContent='SOLO AIRE · '+(current==='high'?'ALTA':'BAJA');
+  sub.textContent='Ventilación sin bomba';
+  status.textContent='LISTO';
+  status.style.color='#29995a';
+}
+
+function change(target){
+  if(busy || target===current) return;
+  busy=true;
+
+  hero.classList.add('changing');
+  title.textContent='CAMBIANDO VELOCIDAD';
+  sub.textContent='Protección del motor activa';
+  status.textContent='CAMBIANDO…';
+  status.style.color='#d58a28';
+
+  if(current==='low' && target==='high'){
+    low.classList.add('flip-out-left');
+    high.classList.add('flip-in-right');
+    glowHigh.classList.add('show');
+  } else {
+    high.classList.add('flip-out-right');
+    low.classList.add('flip-in-left');
+    glowLow.classList.add('show');
+  }
+
+  setTimeout(()=>{
+    current=target;
+    busy=false;
+    finish();
+  },720);
+}
+
+low.onclick=()=>change('low');
+high.onclick=()=>change('high');
+document.getElementById('toHigh').onclick=()=>change('high');
+document.getElementById('toLow').onclick=()=>change('low');
+
+finish();
+</script>
+</body>
+</html>
