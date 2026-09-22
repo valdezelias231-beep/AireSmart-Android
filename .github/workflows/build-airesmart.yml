@@ -6,9 +6,6 @@ on:
     paths:
       - '.github/workflows/build-airesmart.yml'
 
-permissions:
-  contents: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -68,6 +65,7 @@ jobs:
         run: |
           mkdir -p app/src/main/java/com/airesmart/remote
           mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/xml
           mkdir -p app/src/main/res/drawable
 
           cat > settings.gradle <<'EOF'
@@ -105,8 +103,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 25
-                  versionName "1.0.24"
+                  versionCode 31
+                  versionName "1.0.22-SmartLink1"
               }
 
               signingConfigs {
@@ -161,18 +159,27 @@ jobs:
           </resources>
           EOF
 
+          cat > app/src/main/res/xml/network_security_config.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <network-security-config>
+              <base-config cleartextTrafficPermitted="false" />
+              <domain-config cleartextTrafficPermitted="true">
+                  <domain includeSubdomains="false">airesmart.local</domain>
+              </domain-config>
+          </network-security-config>
+          EOF
+
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-              <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
               <application
                   android:allowBackup="false"
                   android:label="AireSmart"
                   android:icon="@drawable/airesmart_app_icon"
                   android:roundIcon="@drawable/airesmart_app_icon"
-                  android:usesCleartextTraffic="false"
+                  android:networkSecurityConfig="@xml/network_security_config"
                   android:theme="@style/AppTheme">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
@@ -189,12 +196,10 @@ jobs:
 
           import android.app.Activity;
           import android.app.AlertDialog;
-          import android.app.DownloadManager;
           import android.animation.ValueAnimator;
           import android.animation.Animator;
           import android.animation.AnimatorListenerAdapter;
           import android.content.Context;
-          import android.content.Intent;
           import android.content.SharedPreferences;
           import android.graphics.Canvas;
           import android.graphics.Color;
@@ -203,12 +208,9 @@ jobs:
           import android.graphics.Typeface;
           import android.graphics.drawable.GradientDrawable;
           import android.os.Bundle;
-          import android.os.Build;
-          import android.os.Environment;
           import android.os.Handler;
           import android.os.Looper;
           import android.provider.Settings;
-          import android.net.Uri;
           import android.security.keystore.KeyGenParameterSpec;
           import android.security.keystore.KeyProperties;
           import android.text.InputType;
@@ -239,6 +241,7 @@ jobs:
           import java.util.concurrent.ExecutorService;
           import java.util.concurrent.Executors;
           import java.net.URL;
+          import java.net.HttpURLConnection;
           import java.security.KeyStore;
           import java.security.MessageDigest;
           import javax.crypto.Cipher;
@@ -253,7 +256,73 @@ jobs:
 
           public class MainActivity extends Activity {
               private final ExecutorService io = Executors.newSingleThreadExecutor();
+              private final ExecutorService localIo = Executors.newSingleThreadExecutor();
               private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+              private static final String LOCAL_BASE = "http://airesmart.local";
+              private volatile boolean smartLinkRunning = false;
+              private volatile boolean localAvailable = false;
+              private volatile long localLastSeenMs = 0L;
+              private volatile int localProbeMisses = 0;
+
+              private final Runnable smartLinkProbe = new Runnable() {
+                  @Override
+                  public void run() {
+                      if (!smartLinkRunning) return;
+
+                      localIo.execute(() -> {
+                          LocalStatus status = fetchLocalStatus(450, 700);
+
+                          if (status != null) {
+                              localAvailable = true;
+                              localLastSeenMs = System.currentTimeMillis();
+                              localProbeMisses = 0;
+
+                              motorOn = status.motor;
+                              high = status.high;
+
+                              runOnUiThread(() -> {
+                                  if (pendingId == null) {
+                                      setCloud(
+                                          "● LOCAL",
+                                          Color.rgb(13,136,74),
+                                          "SmartLink · conexión directa"
+                                      );
+                                      paintState(
+                                          status.state,
+                                          status.remaining
+                                      );
+                                  }
+                              });
+                          } else {
+                              localProbeMisses++;
+
+                              if (localProbeMisses >= 2) {
+                                  boolean wasLocal = localAvailable;
+                                  localAvailable = false;
+
+                                  if (wasLocal) {
+                                      runOnUiThread(() -> {
+                                          if (
+                                              pendingId == null &&
+                                              mqtt != null &&
+                                              mqtt.isConnected()
+                                          ) {
+                                              setCloud(
+                                                  "● BROKER",
+                                                  Color.rgb(13,136,74),
+                                                  "SmartLink · remoto"
+                                              );
+                                          }
+                                      });
+                                  }
+                              }
+                          }
+                      });
+
+                      mainHandler.postDelayed(this, 8000);
+                  }
+              };
 
               private MqttClient mqtt;
               private SharedPreferences prefs;
@@ -261,18 +330,6 @@ jobs:
               private TextView cloudStatus, detailState, systemState, heroSub, ackState;
               private Button coolButton, fanButton, lowButton, highButton;
               private PowerRingView powerRing;
-
-              private LinearLayout updateCard;
-              private TextView updateTitle;
-              private TextView updateDetail;
-              private Button updateButton;
-
-              private String availableUpdateVersion = "";
-              private String availableUpdateApkUrl = "";
-              private String availableUpdateSha256 = "";
-
-              private static final String UPDATE_MANIFEST_URL =
-                  "https://github.com/valdezelias231-beep/AireSmart-Android/releases/latest/download/latest.json";
 
               private static final String PAIR_API =
                   "https://airesmart-pairing-api.valdezelias231.workers.dev/pair";
@@ -506,14 +563,13 @@ jobs:
 
               private void openControl() {
                   setContentView(buildUi());
+                  startSmartLink();
 
                   if (password.isEmpty()) {
                       showConnectionDialog();
                   } else {
                       connectMqtt();
                   }
-
-                  checkForUpdates();
               }
 
               private View buildPairingUi() {
@@ -1075,543 +1131,13 @@ jobs:
                   ackCard.addView(ackState);
                   root.addView(ackCard);
 
-                  updateCard = card();
-                  updateCard.setVisibility(View.GONE);
-                  updateCard.setPadding(
-                      dp(18),
-                      dp(15),
-                      dp(18),
-                      dp(15)
-                  );
-
-                  updateTitle = text(
-                      "ACTUALIZACIÓN DISPONIBLE",
-                      12,
-                      Color.rgb(24,95,158),
-                      true
-                  );
-                  updateTitle.setGravity(Gravity.START);
-                  updateCard.addView(updateTitle);
-
-                  space(updateCard, 5);
-
-                  updateDetail = text(
-                      "",
-                      11,
-                      Color.rgb(99,119,143),
-                      false
-                  );
-                  updateDetail.setGravity(Gravity.START);
-                  updateCard.addView(updateDetail);
-
-                  space(updateCard, 10);
-
-                  updateButton = button(
-                      "ACTUALIZAR",
-                      Color.rgb(13,125,246)
-                  );
-                  updateButton.setOnClickListener(
-                      v -> downloadAndInstallUpdate()
-                  );
-                  addPressEffect(updateButton);
-                  updateCard.addView(
-                      updateButton,
-                      lp(-1, 52)
-                  );
-
-                  LinearLayout.LayoutParams up = lp(-1, -2);
-                  up.topMargin = dp(14);
-                  root.addView(updateCard, up);
-
-                  TextView version = text("AireSmart Remote v1.0.24", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.22 · SmartLink P1", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
 
                   animateEntrance(root);
                   return scroll;
-              }
-
-              private void checkForUpdates() {
-                  io.execute(() -> {
-                      try {
-                          String raw = fetchHttpsText(
-                              UPDATE_MANIFEST_URL
-                          );
-
-                          if (raw == null || raw.trim().isEmpty()) {
-                              return;
-                          }
-
-                          JSONObject latest = new JSONObject(raw);
-
-                          int latestCode =
-                              latest.optInt("versionCode", 0);
-
-                          String latestName =
-                              latest.optString(
-                                  "versionName",
-                                  ""
-                              ).trim();
-
-                          String apkUrl =
-                              latest.optString(
-                                  "apkUrl",
-                                  ""
-                              ).trim();
-
-                          String sha256 =
-                              latest.optString(
-                                  "sha256",
-                                  ""
-                              ).trim().toLowerCase();
-
-                          String notes =
-                              latest.optString(
-                                  "notes",
-                                  ""
-                              ).trim();
-
-                          if (
-                              latestCode <= 25 ||
-                              latestName.isEmpty() ||
-                              apkUrl.isEmpty() ||
-                              sha256.length() != 64
-                          ) {
-                              return;
-                          }
-
-                          availableUpdateVersion = latestName;
-                          availableUpdateApkUrl = apkUrl;
-                          availableUpdateSha256 = sha256;
-
-                          runOnUiThread(() -> {
-                              if (updateCard == null) {
-                                  return;
-                              }
-
-                              updateTitle.setText(
-                                  "ACTUALIZACIÓN DISPONIBLE · v" +
-                                  availableUpdateVersion
-                              );
-
-                              updateDetail.setText(
-                                  notes.isEmpty()
-                                      ? "Nueva versión de AireSmart lista para instalar."
-                                      : notes
-                              );
-
-                              updateButton.setText("ACTUALIZAR");
-                              updateButton.setEnabled(true);
-                              updateButton.setAlpha(1f);
-                              updateCard.setVisibility(View.VISIBLE);
-                          });
-
-                      } catch (Exception ignored) {
-                          // Si GitHub no responde, la app sigue funcionando
-                          // normalmente y simplemente oculta el aviso.
-                      }
-                  });
-              }
-
-              private String fetchHttpsText(String initialUrl)
-                  throws Exception {
-
-                  String currentUrl = initialUrl;
-
-                  for (int redirect = 0; redirect < 6; redirect++) {
-                      URL url = new URL(currentUrl);
-
-                      HttpsURLConnection conn =
-                          (HttpsURLConnection) url.openConnection();
-
-                      conn.setRequestMethod("GET");
-                      conn.setConnectTimeout(10000);
-                      conn.setReadTimeout(12000);
-                      conn.setUseCaches(false);
-                      conn.setInstanceFollowRedirects(false);
-                      conn.setRequestProperty(
-                          "Accept",
-                          "application/json"
-                      );
-                      conn.setRequestProperty(
-                          "User-Agent",
-                          "AireSmart-Android/" + "1.0.24"
-                      );
-
-                      int code = conn.getResponseCode();
-
-                      if (
-                          code == 301 ||
-                          code == 302 ||
-                          code == 303 ||
-                          code == 307 ||
-                          code == 308
-                      ) {
-                          String location =
-                              conn.getHeaderField("Location");
-
-                          conn.disconnect();
-
-                          if (
-                              location == null ||
-                              location.trim().isEmpty()
-                          ) {
-                              throw new IllegalStateException(
-                                  "update_redirect_without_location"
-                              );
-                          }
-
-                          currentUrl = new URL(
-                              url,
-                              location
-                          ).toString();
-
-                          continue;
-                      }
-
-                      if (code < 200 || code >= 300) {
-                          conn.disconnect();
-                          throw new IllegalStateException(
-                              "update_manifest_http_" + code
-                          );
-                      }
-
-                      StringBuilder result =
-                          new StringBuilder();
-
-                      try (
-                          BufferedReader reader =
-                              new BufferedReader(
-                                  new InputStreamReader(
-                                      conn.getInputStream(),
-                                      StandardCharsets.UTF_8
-                                  )
-                              )
-                      ) {
-                          String line;
-
-                          while ((line = reader.readLine()) != null) {
-                              result.append(line);
-                          }
-                      } finally {
-                          conn.disconnect();
-                      }
-
-                      return result.toString();
-                  }
-
-                  throw new IllegalStateException(
-                      "too_many_update_redirects"
-                  );
-              }
-
-              private void downloadAndInstallUpdate() {
-                  if (
-                      availableUpdateApkUrl.isEmpty() ||
-                      availableUpdateSha256.length() != 64
-                  ) {
-                      toast("No hay una actualización lista");
-                      return;
-                  }
-
-                  if (
-                      Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                      !getPackageManager().canRequestPackageInstalls()
-                  ) {
-                      try {
-                          Intent settingsIntent = new Intent(
-                              Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                              Uri.parse(
-                                  "package:" + getPackageName()
-                              )
-                          );
-
-                          startActivity(settingsIntent);
-
-                          toast(
-                              "Activa “Permitir desde esta fuente” " +
-                              "y vuelve a tocar ACTUALIZAR"
-                          );
-                      } catch (Exception error) {
-                          toast(
-                              "Android debe permitir instalar " +
-                              "actualizaciones desde AireSmart"
-                          );
-                      }
-
-                      return;
-                  }
-
-                  try {
-                      DownloadManager manager =
-                          (DownloadManager) getSystemService(
-                              DOWNLOAD_SERVICE
-                          );
-
-                      if (manager == null) {
-                          throw new IllegalStateException(
-                              "download_manager_unavailable"
-                          );
-                      }
-
-                      String fileName =
-                          "AireSmart_Update_v" +
-                          availableUpdateVersion +
-                          ".apk";
-
-                      DownloadManager.Request request =
-                          new DownloadManager.Request(
-                              Uri.parse(
-                                  availableUpdateApkUrl
-                              )
-                          );
-
-                      request.setTitle(
-                          "Actualizando AireSmart"
-                      );
-
-                      request.setDescription(
-                          "Descargando v" +
-                          availableUpdateVersion
-                      );
-
-                      request.setMimeType(
-                          "application/vnd.android.package-archive"
-                      );
-
-                      request.setAllowedOverMetered(true);
-                      request.setAllowedOverRoaming(false);
-                      request.setNotificationVisibility(
-                          DownloadManager.Request
-                              .VISIBILITY_VISIBLE_NOTIFY_COMPLETED
-                      );
-
-                      request.setDestinationInExternalFilesDir(
-                          this,
-                          Environment.DIRECTORY_DOWNLOADS,
-                          fileName
-                      );
-
-                      long downloadId =
-                          manager.enqueue(request);
-
-                      updateButton.setEnabled(false);
-                      updateButton.setAlpha(0.7f);
-                      updateButton.setText("DESCARGANDO…");
-                      updateDetail.setText(
-                          "Descargando y verificando la actualización."
-                      );
-
-                      io.execute(
-                          () -> waitForUpdateDownload(
-                              manager,
-                              downloadId
-                          )
-                      );
-
-                  } catch (Exception error) {
-                      updateButton.setEnabled(true);
-                      updateButton.setAlpha(1f);
-                      updateButton.setText("ACTUALIZAR");
-                      toast("No se pudo iniciar la descarga");
-                  }
-              }
-
-              private void waitForUpdateDownload(
-                  DownloadManager manager,
-                  long downloadId
-              ) {
-                  for (int attempt = 0; attempt < 240; attempt++) {
-                      DownloadManager.Query query =
-                          new DownloadManager.Query();
-
-                      query.setFilterById(downloadId);
-
-                      try (
-                          android.database.Cursor cursor =
-                              manager.query(query)
-                      ) {
-                          if (
-                              cursor != null &&
-                              cursor.moveToFirst()
-                          ) {
-                              int statusIndex =
-                                  cursor.getColumnIndex(
-                                      DownloadManager.COLUMN_STATUS
-                                  );
-
-                              int status =
-                                  statusIndex >= 0
-                                      ? cursor.getInt(statusIndex)
-                                      : DownloadManager.STATUS_FAILED;
-
-                              if (
-                                  status ==
-                                  DownloadManager.STATUS_SUCCESSFUL
-                              ) {
-                                  Uri apkUri =
-                                      manager.getUriForDownloadedFile(
-                                          downloadId
-                                      );
-
-                                  if (apkUri == null) {
-                                      updateFailed(
-                                          "No se pudo abrir el APK descargado"
-                                      );
-                                      return;
-                                  }
-
-                                  try {
-                                      String downloadedSha =
-                                          sha256OfUri(apkUri);
-
-                                      if (
-                                          !availableUpdateSha256.equalsIgnoreCase(
-                                              downloadedSha
-                                          )
-                                      ) {
-                                          manager.remove(downloadId);
-
-                                          updateFailed(
-                                              "La verificación de seguridad falló"
-                                          );
-                                          return;
-                                      }
-
-                                      runOnUiThread(
-                                          () -> installDownloadedApk(
-                                              apkUri
-                                          )
-                                      );
-
-                                  } catch (Exception error) {
-                                      updateFailed(
-                                          "No se pudo verificar la actualización"
-                                      );
-                                  }
-
-                                  return;
-                              }
-
-                              if (
-                                  status ==
-                                  DownloadManager.STATUS_FAILED
-                              ) {
-                                  updateFailed(
-                                      "La descarga de la actualización falló"
-                                  );
-                                  return;
-                              }
-                          }
-                      } catch (Exception error) {
-                          updateFailed(
-                              "No se pudo comprobar la descarga"
-                          );
-                          return;
-                      }
-
-                      try {
-                          Thread.sleep(500);
-                      } catch (InterruptedException ignored) {
-                          Thread.currentThread().interrupt();
-                          return;
-                      }
-                  }
-
-                  updateFailed(
-                      "La descarga tardó demasiado"
-                  );
-              }
-
-              private String sha256OfUri(Uri uri)
-                  throws Exception {
-
-                  MessageDigest digest =
-                      MessageDigest.getInstance("SHA-256");
-
-                  try (
-                      InputStream input =
-                          getContentResolver().openInputStream(uri)
-                  ) {
-                      if (input == null) {
-                          throw new IllegalStateException(
-                              "update_file_unavailable"
-                          );
-                      }
-
-                      byte[] buffer = new byte[8192];
-                      int read;
-
-                      while ((read = input.read(buffer)) != -1) {
-                          digest.update(
-                              buffer,
-                              0,
-                              read
-                          );
-                      }
-                  }
-
-                  byte[] hash = digest.digest();
-                  StringBuilder hex = new StringBuilder();
-
-                  for (byte b : hash) {
-                      hex.append(
-                          String.format(
-                              "%02x",
-                              b & 0xff
-                          )
-                      );
-                  }
-
-                  return hex.toString();
-              }
-
-              private void installDownloadedApk(Uri apkUri) {
-                  try {
-                      updateButton.setText("INSTALANDO…");
-                      updateDetail.setText(
-                          "Android abrirá el instalador para confirmar."
-                      );
-
-                      Intent install = new Intent(
-                          Intent.ACTION_VIEW
-                      );
-
-                      install.setDataAndType(
-                          apkUri,
-                          "application/vnd.android.package-archive"
-                      );
-
-                      install.addFlags(
-                          Intent.FLAG_ACTIVITY_NEW_TASK |
-                          Intent.FLAG_GRANT_READ_URI_PERMISSION
-                      );
-
-                      startActivity(install);
-
-                  } catch (Exception error) {
-                      updateFailed(
-                          "No se pudo abrir el instalador de Android"
-                      );
-                  }
-              }
-
-              private void updateFailed(String message) {
-                  runOnUiThread(() -> {
-                      if (updateButton != null) {
-                          updateButton.setEnabled(true);
-                          updateButton.setAlpha(1f);
-                          updateButton.setText("REINTENTAR");
-                      }
-
-                      if (updateDetail != null) {
-                          updateDetail.setText(message);
-                          updateDetail.setTextColor(
-                              Color.rgb(201,54,64)
-                          );
-                      }
-                  });
               }
 
               private void showConnectionDialog() {
@@ -2227,6 +1753,356 @@ jobs:
                   });
               }
 
+              private static class LocalStatus {
+                  boolean motor;
+                  boolean high;
+                  boolean pump;
+                  String state;
+                  long remaining;
+              }
+
+              private static class LocalCommandResult {
+                  boolean delivered;
+                  boolean confirmed;
+                  LocalStatus status;
+              }
+
+              private void startSmartLink() {
+                  if (smartLinkRunning) return;
+                  smartLinkRunning = true;
+                  mainHandler.removeCallbacks(smartLinkProbe);
+                  mainHandler.post(smartLinkProbe);
+              }
+
+              private void stopSmartLink() {
+                  smartLinkRunning = false;
+                  mainHandler.removeCallbacks(smartLinkProbe);
+              }
+
+              private LocalStatus fetchLocalStatus(
+                  int connectTimeoutMs,
+                  int readTimeoutMs
+              ) {
+                  HttpURLConnection connection = null;
+
+                  try {
+                      URL url = new URL(
+                          LOCAL_BASE + "/status?ts=" +
+                          System.currentTimeMillis()
+                      );
+
+                      connection =
+                          (HttpURLConnection) url.openConnection();
+
+                      connection.setRequestMethod("GET");
+                      connection.setConnectTimeout(connectTimeoutMs);
+                      connection.setReadTimeout(readTimeoutMs);
+                      connection.setUseCaches(false);
+                      connection.setRequestProperty(
+                          "Connection",
+                          "close"
+                      );
+                      connection.setRequestProperty(
+                          "Accept",
+                          "application/json"
+                      );
+
+                      int code = connection.getResponseCode();
+                      if (code != 200) {
+                          return null;
+                      }
+
+                      StringBuilder body = new StringBuilder();
+
+                      try (
+                          BufferedReader reader = new BufferedReader(
+                              new InputStreamReader(
+                                  connection.getInputStream(),
+                                  StandardCharsets.UTF_8
+                              )
+                          )
+                      ) {
+                          String line;
+                          while ((line = reader.readLine()) != null) {
+                              body.append(line);
+                          }
+                      }
+
+                      JSONObject j =
+                          new JSONObject(body.toString());
+
+                      String version =
+                          j.optString("version", "");
+
+                      // Evita aceptar por error otro servidor HTTP
+                      // que casualmente use el hostname/ruta.
+                      if (!version.startsWith("AireSmart")) {
+                          return null;
+                      }
+
+                      LocalStatus status = new LocalStatus();
+                      status.motor =
+                          j.optBoolean("motor", false);
+                      status.high =
+                          j.optBoolean("high", false);
+                      status.pump =
+                          j.optBoolean("pump", false);
+                      status.state =
+                          j.optString(
+                              "state",
+                              status.motor
+                                  ? "ENCENDIDO"
+                                  : "APAGADO"
+                          );
+                      status.remaining =
+                          j.optLong("remaining", 0L);
+
+                      return status;
+
+                  } catch (Exception ignored) {
+                      return null;
+
+                  } finally {
+                      if (connection != null) {
+                          connection.disconnect();
+                      }
+                  }
+              }
+
+              private String localPathFor(
+                  String action,
+                  String value
+              ) {
+                  if ("power".equals(action)) {
+                      return "true".equals(value)
+                          ? "/on"
+                          : "/off";
+                  }
+
+                  if ("mode".equals(action)) {
+                      if ("cool".equals(value)) return "/cool";
+                      if ("fan".equals(value)) return "/fan";
+                  }
+
+                  if ("speed".equals(action)) {
+                      if ("high".equals(value)) return "/high";
+                      if ("low".equals(value)) return "/low";
+                  }
+
+                  return null;
+              }
+
+              private boolean postLocalCommand(
+                  String path
+              ) {
+                  if (path == null || path.isEmpty()) {
+                      return false;
+                  }
+
+                  HttpURLConnection connection = null;
+
+                  try {
+                      URL url =
+                          new URL(LOCAL_BASE + path);
+
+                      connection =
+                          (HttpURLConnection) url.openConnection();
+
+                      connection.setRequestMethod("POST");
+                      connection.setConnectTimeout(550);
+                      connection.setReadTimeout(900);
+                      connection.setUseCaches(false);
+                      connection.setDoOutput(false);
+                      connection.setRequestProperty(
+                          "Connection",
+                          "close"
+                      );
+
+                      int code = connection.getResponseCode();
+
+                      return code >= 200 && code < 300;
+
+                  } catch (Exception ignored) {
+                      return false;
+
+                  } finally {
+                      if (connection != null) {
+                          connection.disconnect();
+                      }
+                  }
+              }
+
+              private boolean localStatusConfirms(
+                  String action,
+                  String value,
+                  LocalStatus status
+              ) {
+                  if (status == null) return false;
+
+                  String upper =
+                      status.state == null
+                          ? ""
+                          : status.state.toUpperCase();
+
+                  if ("power".equals(action)) {
+                      if ("true".equals(value)) {
+                          return
+                              upper.contains("REMOJ") ||
+                              upper.contains("ENCEND") ||
+                              status.motor ||
+                              status.pump;
+                      }
+
+                      return
+                          upper.contains("APAG") &&
+                          !status.motor;
+                  }
+
+                  if ("speed".equals(action)) {
+                      if (!status.motor) {
+                          return false;
+                      }
+
+                      if ("high".equals(value)) {
+                          return status.high;
+                      }
+
+                      if ("low".equals(value)) {
+                          return !status.high;
+                      }
+                  }
+
+                  if ("mode".equals(action)) {
+                      if ("fan".equals(value)) {
+                          return
+                              upper.contains("SOLO AIRE") &&
+                              status.motor &&
+                              !status.pump;
+                      }
+
+                      if ("cool".equals(value)) {
+                          return
+                              !upper.contains("SOLO AIRE") &&
+                              (
+                                  upper.contains("REMOJ") ||
+                                  upper.contains("ENCEND") ||
+                                  status.pump
+                              );
+                      }
+                  }
+
+                  return false;
+              }
+
+              private LocalCommandResult tryLocalCommand(
+                  String action,
+                  String value
+              ) {
+                  LocalCommandResult result =
+                      new LocalCommandResult();
+
+                  String path =
+                      localPathFor(action, value);
+
+                  if (!postLocalCommand(path)) {
+                      result.delivered = false;
+                      result.confirmed = false;
+                      return result;
+                  }
+
+                  result.delivered = true;
+
+                  /*
+                   * El firmware hace cambio seguro de velocidad,
+                   * que puede tardar ~1.5 s. Por eso verificamos
+                   * el estado real durante una ventana corta antes
+                   * de declarar la orden confirmada.
+                   */
+                  long deadline =
+                      System.currentTimeMillis() + 3200L;
+
+                  LocalStatus latest = null;
+
+                  do {
+                      latest =
+                          fetchLocalStatus(500, 800);
+
+                      if (
+                          latest != null &&
+                          localStatusConfirms(
+                              action,
+                              value,
+                              latest
+                          )
+                      ) {
+                          result.confirmed = true;
+                          result.status = latest;
+                          return result;
+                      }
+
+                      try {
+                          Thread.sleep(160L);
+                      } catch (
+                          InterruptedException interrupted
+                      ) {
+                          Thread.currentThread().interrupt();
+                          break;
+                      }
+
+                  } while (
+                      System.currentTimeMillis() < deadline
+                  );
+
+                  result.confirmed = false;
+                  result.status = latest;
+                  return result;
+              }
+
+              private void applyLocalResult(
+                  LocalCommandResult result
+              ) {
+                  mainHandler.removeCallbacks(ackTimeout);
+
+                  if (result.status != null) {
+                      motorOn = result.status.motor;
+                      high = result.status.high;
+
+                      paintState(
+                          result.status.state,
+                          result.status.remaining
+                      );
+                  }
+
+                  clearPendingCommand();
+
+                  localAvailable = true;
+                  localLastSeenMs =
+                      System.currentTimeMillis();
+                  localProbeMisses = 0;
+
+                  setCloud(
+                      "● LOCAL",
+                      Color.rgb(13,136,74),
+                      "SmartLink · conexión directa"
+                  );
+
+                  showAck(
+                      result.confirmed
+                          ? "ORDEN CONFIRMADA · LOCAL"
+                          : "ORDEN RECIBIDA · LOCAL",
+                      result.confirmed
+                  );
+              }
+
+              private boolean shouldUseLocal() {
+                  return
+                      localAvailable &&
+                      (
+                          System.currentTimeMillis() -
+                          localLastSeenMs
+                      ) < 15000L;
+              }
+
               private void clearPendingCommand() {
                   pendingId = null;
                   pendingAction = null;
@@ -2519,15 +2395,54 @@ jobs:
                   sendCommand("mode", mode, false);
               }
 
-              private void sendCommand(String action, String value, boolean boolValue) {
-                  if (mqtt == null || !mqtt.isConnected()) {
-                      toast("AireSmart no está conectado");
+              private void sendCommand(
+                  String action,
+                  String value,
+                  boolean boolValue
+              ) {
+                  boolean mqttReady =
+                      mqtt != null && mqtt.isConnected();
+
+                  if (!shouldUseLocal() && !mqttReady) {
+                      /*
+                       * Puede que el teléfono haya llegado a casa justo ahora
+                       * y el sondeo periódico aún no lo haya detectado.
+                       * Hacemos un intento local directo antes de declarar
+                       * que no hay ruta.
+                       */
+                      localIo.execute(() -> {
+                          LocalStatus probe =
+                              fetchLocalStatus(500, 800);
+
+                          if (probe != null) {
+                              localAvailable = true;
+                              localLastSeenMs =
+                                  System.currentTimeMillis();
+                              localProbeMisses = 0;
+
+                              runOnUiThread(() ->
+                                  sendCommand(
+                                      action,
+                                      value,
+                                      boolValue
+                                  )
+                              );
+                          } else {
+                              runOnUiThread(() ->
+                                  toast(
+                                      "AireSmart no está conectado"
+                                  )
+                              );
+                          }
+                      });
                       return;
                   }
 
                   String id =
                       System.currentTimeMillis() + "-" +
-                      UUID.randomUUID().toString().substring(0,6);
+                      UUID.randomUUID()
+                          .toString()
+                          .substring(0,6);
 
                   String json = boolValue
                       ? "{\"id\":\""+id+"\",\"action\":\""+action+"\",\"value\":"+value+"}"
@@ -2536,26 +2451,115 @@ jobs:
                   pendingId = id;
                   pendingAction = action;
                   pendingValue = value;
+
                   showAck("ENVIANDO ORDEN…", false);
-                  powerRing.setMode(PowerRingView.MODE_PENDING);
+                  powerRing.setMode(
+                      PowerRingView.MODE_PENDING
+                  );
 
                   mainHandler.removeCallbacks(ackTimeout);
-                  mainHandler.postDelayed(ackTimeout, 8000);
+                  mainHandler.postDelayed(
+                      ackTimeout,
+                      8000
+                  );
 
+                  /*
+                   * SMARTLINK:
+                   * Si el último sondeo vio al ESP32 localmente,
+                   * probamos primero la ruta directa. Solo si esa
+                   * ruta NO recibió la orden hacemos fallback a MQTT.
+                   */
+                  if (shouldUseLocal()) {
+                      localIo.execute(() -> {
+                          LocalCommandResult local =
+                              tryLocalCommand(
+                                  action,
+                                  value
+                              );
+
+                          if (local.delivered) {
+                              runOnUiThread(() ->
+                                  applyLocalResult(local)
+                              );
+                              return;
+                          }
+
+                          localAvailable = false;
+                          localProbeMisses = 2;
+
+                          publishMqttFallback(
+                              json,
+                              id
+                          );
+                      });
+
+                      return;
+                  }
+
+                  publishMqttFallback(
+                      json,
+                      id
+                  );
+              }
+
+              private void publishMqttFallback(
+                  String json,
+                  String id
+              ) {
                   io.execute(() -> {
                       try {
+                          if (
+                              mqtt == null ||
+                              !mqtt.isConnected()
+                          ) {
+                              throw new IllegalStateException(
+                                  "sin ruta local ni MQTT"
+                              );
+                          }
+
                           MqttMessage m =
-                              new MqttMessage(json.getBytes(StandardCharsets.UTF_8));
+                              new MqttMessage(
+                                  json.getBytes(
+                                      StandardCharsets.UTF_8
+                                  )
+                              );
+
                           m.setQos(1);
                           m.setRetained(false);
-                          mqtt.publish(topicBase + "/cmd", m);
+
+                          mqtt.publish(
+                              topicBase + "/cmd",
+                              m
+                          );
+
+                          runOnUiThread(() ->
+                              setCloud(
+                                  "● BROKER",
+                                  Color.rgb(13,136,74),
+                                  "SmartLink · remoto"
+                              )
+                          );
 
                       } catch (Exception e) {
                           runOnUiThread(() -> {
-                              mainHandler.removeCallbacks(ackTimeout);
-                              clearPendingCommand();
+                              mainHandler.removeCallbacks(
+                                  ackTimeout
+                              );
+
+                              /*
+                               * Solo limpiamos si sigue siendo
+                               * exactamente la misma orden.
+                               */
+                              if (
+                                  pendingId != null &&
+                                  pendingId.equals(id)
+                              ) {
+                                  clearPendingCommand();
+                              }
+
                               showAck(
-                                  "ERROR AL ENVIAR · " + safe(e.getMessage()),
+                                  "SIN CONEXIÓN · " +
+                                  safe(e.getMessage()),
                                   false
                               );
                               restoreRing();
@@ -2889,6 +2893,8 @@ jobs:
 
               @Override
               protected void onDestroy() {
+                  stopSmartLink();
+                  localIo.shutdownNow();
                   super.onDestroy();
                   io.execute(() -> {
                       try {
@@ -3224,7 +3230,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.24_Update_Test.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.22_SmartLink_P1.apk
 
       - name: Verify APK signature
         env:
@@ -3234,53 +3240,7 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.24_Update_Test.apk
-
-      - name: Generate in-app update manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          APK="AireSmart_Remote_v1.0.24_Update_Test.apk"
-          SHA256="$(sha256sum "$APK" | awk '{print $1}')"
-
-          cat > latest.json <<EOF
-          {
-            "versionCode": 25,
-            "versionName": "1.0.24",
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.24/${APK}",
-            "sha256": "${SHA256}",
-            "notes": "Prueba del actualizador integrado de AireSmart."
-          }
-          EOF
-
-      - name: Publish permanent AireSmart release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          TAG="v1.0.24"
-          APK="AireSmart_Remote_v1.0.24_Update_Test.apk"
-
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload \
-              "$TAG" \
-              "$APK" \
-              latest.json \
-              --clobber
-          else
-            gh release create \
-              "$TAG" \
-              "$APK" \
-              latest.json \
-              --title "AireSmart Remote v1.0.24" \
-              --notes "Prueba real de actualización desde la propia aplicación."
-          fi
-
-          # Fuerza esta release como la Latest Release de GitHub.
-          gh release edit "$TAG" --latest
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.22_SmartLink_P1.apk
 
       - name: Remove decrypted key
         if: always()
@@ -3290,7 +3250,5 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.24-Update-Test
-          path: |
-            AireSmart_Remote_v1.0.24_Update_Test.apk
-            latest.json
+          name: AireSmart-Remote-v1.0.22-SmartLink-P1
+          path: AireSmart_Remote_v1.0.22_SmartLink_P1.apk
