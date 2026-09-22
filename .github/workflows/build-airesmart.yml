@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 36
-                  versionName "1.0.32"
+                  versionCode 37
+                  versionName "1.0.33"
               }
 
               signingConfigs {
@@ -299,7 +299,7 @@ jobs:
             </section>
             <section class="card"><div class="head"><b>Eventos</b><span id="eventCount">0 eventos</span></div><div class="filters"><button class="chip active" data-filter="all">Todos</button><button class="chip" data-filter="cmd">Órdenes</button><button class="chip" data-filter="mqtt">MQTT</button><button class="chip" data-filter="ack">ACK</button><button class="chip" data-filter="state">Estado</button><button class="chip" data-filter="error">Errores</button></div><div class="timeline" id="timeline"><div class="empty">Cargando…</div></div></section>
             <section class="card"><div class="head"><b>Acciones</b><span>diagnóstico</span></div><div class="actions"><button class="btn primary" id="refreshBtn">Actualizar</button><button class="btn" id="copyBtn">Copiar diagnóstico</button><button class="btn" id="exportBtn">Exportar registro</button><button class="btn danger" id="clearBtn">Borrar historial</button></div></section>
-            <div class="footer">AireSmart v1.0.32 • Flip 3D Speed UI</div>
+            <div class="footer">AireSmart v1.0.33 • Continuous Speed Animation</div>
           </div><script src="ui.js"></script><script src="bridge.js"></script></body></html>
           EOF
 
@@ -793,7 +793,7 @@ jobs:
                   super.onCreate(savedInstanceState);
 
                   prefs = getSharedPreferences("airesmart", MODE_PRIVATE);
-                  BlackBoxLogger.log(this, "app", "info", "Aplicación iniciada", "AireSmart v1.0.32", -1);
+                  BlackBoxLogger.log(this, "app", "info", "Aplicación iniciada", "AireSmart v1.0.33", -1);
                   host = prefs.getString("host", host);
                   port = prefs.getInt("port", port);
                   username = prefs.getString("username", username);
@@ -3742,7 +3742,15 @@ jobs:
                               type == TYPE_SPEED &&
                               pendingSelection == value
                           ) {
+                              // ACK de la misma velocidad: no reiniciar ninguna
+                              // animación. Solo cerrar el estado pendiente.
                               pendingSelection = -1;
+                              if (
+                                  transferAnimator == null ||
+                                  !transferAnimator.isRunning()
+                              ) {
+                                  transferProgress = -1f;
+                              }
                               invalidate();
                           }
                           return;
@@ -3751,6 +3759,31 @@ jobs:
                       boolean pendingCommit =
                           type == TYPE_SPEED &&
                           pendingSelection == value;
+
+                      // v1.0.33: el ACK/state NO debe crear una segunda animación.
+                      // beginPendingSelection() ya arrancó el Flip 3D al tocar el
+                      // botón. Aquí solo confirmamos el destino y dejamos correr
+                      // exactamente el mismo animator hasta su último fotograma.
+                      if (pendingCommit) {
+                          previousSelection = selection;
+                          selection = value;
+                          pendingSelection = -1;
+
+                          // No reiniciar selectProgress ni el loop ambiental.
+                          // Si el Flip sigue vivo, continúa sin cortes. Si ya acabó
+                          // y estaba reteniendo el último frame, hacemos el handoff
+                          // al estado final, que visualmente es idéntico.
+                          selectProgress = 1f;
+                          if (
+                              transferAnimator == null ||
+                              !transferAnimator.isRunning()
+                          ) {
+                              transferProgress = -1f;
+                          }
+
+                          invalidate();
+                          return;
+                      }
 
                       previousSelection = selection;
                       selection = value;
@@ -3772,18 +3805,9 @@ jobs:
                           type == TYPE_SPEED &&
                           previousSelection >= 0 &&
                           selection >= 0 &&
-                          previousSelection != selection &&
-                          !pendingCommit
+                          previousSelection != selection
                       ) {
                           startTransfer(previousSelection, selection);
-                      }
-
-                      if (pendingCommit) {
-                          pendingSelection = -1;
-                          if (transferAnimator != null) {
-                              transferAnimator.cancel();
-                          }
-                          transferProgress = -1f;
                       }
                   }
 
@@ -4010,7 +4034,7 @@ jobs:
                           ? 2f * p * p
                           : 1f - (float)Math.pow(-2f * p + 2f, 2f) / 2f;
 
-                      // v1.0.32: perspectiva ligera usando transformaciones
+                      // v1.0.33: perspectiva ligera usando transformaciones
                       // aceleradas por hardware. Evita Camera + saveLayerAlpha,
                       // que provocaban pausas perceptibles en algunos teléfonos.
                       float fromAngle =
@@ -4412,7 +4436,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.32_Smooth_GPU_Flip3D.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.33_Continuous_Speed_Animation.apk
 
       - name: Verify APK signature
         env:
@@ -4422,23 +4446,23 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.32_Smooth_GPU_Flip3D.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.33_Continuous_Speed_Animation.apk
 
       - name: Generate in-app update manifest
         shell: bash
         run: |
           set -euo pipefail
 
-          APK="AireSmart_Remote_v1.0.32_Smooth_GPU_Flip3D.apk"
+          APK="AireSmart_Remote_v1.0.33_Continuous_Speed_Animation.apk"
           SHA256="$(sha256sum "$APK" | awk '{print $1}')"
 
           cat > latest.json <<EOF
           {
-            "versionCode": 36,
-            "versionName": "1.0.32",
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.32/${APK}",
+            "versionCode": 37,
+            "versionName": "1.0.33",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.33/${APK}",
             "sha256": "${SHA256}",
-            "notes": "Smooth GPU Flip 3D: cambio BAJA/ALTA sin pausa visual, render acelerado + diagnóstico asíncrono."
+            "notes": "Continuous Speed Animation: ACK/state confirma BAJA/ALTA sin reiniciar Flip 3D ni animaciones ambientales."
           }
           EOF
 
@@ -4449,8 +4473,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="v1.0.32"
-          APK="AireSmart_Remote_v1.0.32_Smooth_GPU_Flip3D.apk"
+          TAG="v1.0.33"
+          APK="AireSmart_Remote_v1.0.33_Continuous_Speed_Animation.apk"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload \
@@ -4463,8 +4487,8 @@ jobs:
               "$TAG" \
               "$APK" \
               latest.json \
-              --title "AireSmart Remote v1.0.32" \
-              --notes "AireSmart v1.0.32: Smooth GPU Flip 3D, cambio de velocidad más fluido y sin bloquear la interfaz."
+              --title "AireSmart Remote v1.0.33" \
+              --notes "AireSmart v1.0.33: animación BAJA/ALTA continua; el ACK confirma sin reiniciar el Flip 3D ni la fase ambiental."
           fi
 
           # Fuerza esta release como la Latest Release de GitHub.
@@ -4478,7 +4502,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.32-Smooth-GPU-Flip3D
+          name: AireSmart-Remote-v1.0.33-Continuous-Speed-Animation
           path: |
-            AireSmart_Remote_v1.0.32_Smooth_GPU_Flip3D.apk
+            AireSmart_Remote_v1.0.33_Continuous_Speed_Animation.apk
             latest.json
