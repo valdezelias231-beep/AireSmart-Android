@@ -669,6 +669,8 @@ jobs:
           import android.widget.ScrollView;
           import android.widget.TextView;
           import android.widget.Toast;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
 
           import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
           import org.eclipse.paho.client.mqttv3.MqttCallbackExtended;
