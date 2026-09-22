@@ -1173,7 +1173,7 @@ jobs:
                               ).trim();
 
                           if (
-                              latestCode <= BuildConfig.VERSION_CODE ||
+                              latestCode <= 24 ||
                               latestName.isEmpty() ||
                               apkUrl.isEmpty() ||
                               sha256.length() != 64
@@ -1236,7 +1236,7 @@ jobs:
                       );
                       conn.setRequestProperty(
                           "User-Agent",
-                          "AireSmart-Android/" + BuildConfig.VERSION_NAME
+                          "AireSmart-Android/" + "1.0.23"
                       );
 
                       int code = conn.getResponseCode();
@@ -3287,7 +3287,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.23-Self-Update
+          name: AireSmart-Remote-v1.0.23-Self-Update-FIX
           path: |
             AireSmart_Remote_v1.0.23_Self_Update.apk
             latest.json
