@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 29
-                  versionName "1.0.26.1"
+                  versionCode 32
+                  versionName "1.0.28"
               }
 
               signingConfigs {
@@ -299,7 +299,7 @@ jobs:
             </section>
             <section class="card"><div class="head"><b>Eventos</b><span id="eventCount">0 eventos</span></div><div class="filters"><button class="chip active" data-filter="all">Todos</button><button class="chip" data-filter="cmd">Órdenes</button><button class="chip" data-filter="mqtt">MQTT</button><button class="chip" data-filter="ack">ACK</button><button class="chip" data-filter="state">Estado</button><button class="chip" data-filter="error">Errores</button></div><div class="timeline" id="timeline"><div class="empty">Cargando…</div></div></section>
             <section class="card"><div class="head"><b>Acciones</b><span>diagnóstico</span></div><div class="actions"><button class="btn primary" id="refreshBtn">Actualizar</button><button class="btn" id="copyBtn">Copiar diagnóstico</button><button class="btn" id="exportBtn">Exportar registro</button><button class="btn danger" id="clearBtn">Borrar historial</button></div></section>
-            <div class="footer">AireSmart v1.0.26.1 • Visual Engine</div>
+            <div class="footer">AireSmart v1.0.28 • Visual Engine</div>
           </div><script src="ui.js"></script><script src="bridge.js"></script></body></html>
           EOF
 
@@ -418,6 +418,8 @@ jobs:
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
           import android.widget.Toast;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
           import org.json.JSONObject;
 
           public class BlackBoxActivity extends Activity {
@@ -480,6 +482,151 @@ jobs:
           }
           EOF
 
+          cat > app/src/main/assets/airesmart/power_visual.html <<'EOF'
+          <!doctype html>
+          <html lang="es">
+          <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+          <style>
+          :root{--state:#e44a5a;--blue:#4aa8ff;--orbit1:2.6s;--orbit2:3.5s}
+          *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+          html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
+          body{display:grid;place-items:center;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+          .wrap{position:relative;width:100%;height:100%;display:grid;place-items:center;overflow:visible}
+
+          /* OFF / POWERING OFF */
+          .red-wave{position:absolute;width:88%;height:88%;border-radius:50%;border:3px solid rgba(255,58,86,.30);opacity:0;pointer-events:none}
+          .state-off .red-wave.w1{animation:redOut 5s ease-out infinite}
+          .state-off .red-wave.w2{animation:redOut 5s ease-out 2.5s infinite}
+          .state-offing .red-wave.w1{animation:redIn 2.15s ease-in infinite}
+          .state-offing .red-wave.w2{animation:redIn 2.15s ease-in 1.05s infinite}
+          @keyframes redOut{0%{opacity:0;transform:scale(.82)}10%{opacity:.82}72%{opacity:.24}100%{opacity:0;transform:scale(1.06)}}
+          @keyframes redIn{0%{opacity:0;transform:scale(1.06)}14%{opacity:.76}82%{opacity:.20}100%{opacity:0;transform:scale(.80)}}
+
+          /* ON / SPEED CHANGE */
+          .orbit,.orbit2{position:absolute;border-radius:50%;opacity:0;pointer-events:none}
+          .orbit{width:91%;height:91%;background:conic-gradient(from 0deg,transparent 0 10%,color-mix(in srgb,var(--state) 22%,transparent) 10% 18%,color-mix(in srgb,var(--state) 96%,white 4%) 18% 25%,transparent 25% 49%,color-mix(in srgb,var(--state) 18%,transparent) 49% 57%,color-mix(in srgb,var(--state) 80%,white 20%) 57% 64%,transparent 64% 100%);-webkit-mask:radial-gradient(circle,transparent 68%,#000 69% 73%,transparent 74%);mask:radial-gradient(circle,transparent 68%,#000 69% 73%,transparent 74%)}
+          .orbit2{width:82%;height:82%;background:conic-gradient(from 45deg,transparent 0 20%,color-mix(in srgb,var(--state) 82%,white 18%) 20% 29%,transparent 29% 57%,color-mix(in srgb,var(--state) 52%,white 48%) 57% 65%,transparent 65% 100%);-webkit-mask:radial-gradient(circle,transparent 67%,#000 68% 72%,transparent 73%);mask:radial-gradient(circle,transparent 67%,#000 68% 72%,transparent 73%)}
+          .state-on-low .orbit,.state-on-high .orbit,.state-fan-low .orbit,.state-fan-high .orbit,.state-speed .orbit,.state-pending .orbit{opacity:1;animation:cw var(--orbit1) linear infinite}
+          .state-on-low .orbit2,.state-on-high .orbit2,.state-fan-low .orbit2,.state-fan-high .orbit2,.state-speed .orbit2,.state-pending .orbit2{opacity:.9;animation:ccw var(--orbit2) linear infinite}
+          @keyframes cw{to{transform:rotate(360deg)}}
+          @keyframes ccw{to{transform:rotate(-360deg)}}
+
+          /* SOAK WATER EFFECT */
+          .ripple{position:absolute;border-radius:50%;border:2.5px solid rgba(74,168,255,.30);opacity:0;pointer-events:none}
+          .r1{width:75%;height:75%}.r2{width:84%;height:84%}.r3{width:94%;height:94%}
+          .state-soak.active .r1{animation:ripple1 3.3s ease-out infinite}
+          .state-soak.active.mid .r2{animation:ripple2 3.7s ease-out .45s infinite}
+          .state-soak.active.high .r3{animation:ripple3 4.1s ease-out .9s infinite}
+          @keyframes ripple1{0%{opacity:0;transform:scale(.94)}18%{opacity:.50}70%{opacity:.16}100%{opacity:0;transform:scale(1.09)}}
+          @keyframes ripple2{0%{opacity:0;transform:scale(.95)}18%{opacity:.42}72%{opacity:.13}100%{opacity:0;transform:scale(1.08)}}
+          @keyframes ripple3{0%{opacity:0;transform:scale(.96)}18%{opacity:.34}74%{opacity:.10}100%{opacity:0;transform:scale(1.07)}}
+          .soak-svg{position:absolute;width:100%;height:100%;overflow:visible;opacity:0;pointer-events:none;z-index:5}
+          .soak-svg circle{fill:none;transform:rotate(-90deg);transform-origin:50px 50px;stroke-linecap:round}
+          .state-soak .soak-svg{opacity:1}
+          .soak-base{stroke:rgba(74,168,255,.12);stroke-width:4.2}
+          .soak-fill{stroke:var(--blue);stroke-width:4.2;filter:drop-shadow(0 0 2.2px rgba(74,168,255,.30))}
+
+          /* MAIN RING */
+          .halo{position:absolute;width:69%;height:69%;border-radius:50%;box-shadow:0 0 0 7px color-mix(in srgb,var(--state) 15%,transparent),0 0 0 13px color-mix(in srgb,var(--state) 8%,transparent),0 0 18px color-mix(in srgb,var(--state) 16%,transparent);transition:.3s}
+          .ring{position:absolute;width:67%;height:67%;border-radius:50%;z-index:3;background:#f7f8fa;border:13px solid var(--state);box-shadow:0 0 0 5px color-mix(in srgb,var(--state) 22%,transparent),0 0 0 10px color-mix(in srgb,var(--state) 12%,transparent),0 0 20px color-mix(in srgb,var(--state) 18%,transparent);transition:border-color .3s,box-shadow .3s}
+          .state-soak .ring{border-color:rgba(74,168,255,.11);box-shadow:none}
+          .state-soak .halo{box-shadow:0 0 0 7px rgba(74,168,255,.07),0 0 0 13px rgba(74,168,255,.04),0 0 18px rgba(74,168,255,.08)}
+          .inner{position:absolute;width:54%;height:54%;border-radius:50%;display:grid;place-items:center;background:linear-gradient(180deg,#fbfcfd,#f1f3f6);border:1px solid rgba(220,226,233,.9);box-shadow:inset 0 3px 10px rgba(255,255,255,.55),0 5px 13px rgba(30,35,40,.05);z-index:6}
+          .power{width:45%;height:45%;filter:drop-shadow(0 0 4px color-mix(in srgb,var(--state) 25%,transparent));transform-origin:center}
+          .power path{stroke:var(--state);transition:stroke .3s}
+          .state-off .power{animation:pOff 2.4s ease-in-out infinite}
+          .state-offing .power{animation:pOffing 1.25s ease-in-out infinite}
+          .state-speed .power,.state-pending .power{animation:pSpeed 1.45s ease-in-out infinite}
+          .state-on-low .power,.state-fan-low .power{animation:pLow 2s ease-in-out infinite}
+          .state-on-high .power,.state-fan-high .power{animation:pHigh 1.45s ease-in-out infinite}
+          .state-soak .power{animation:pSoak 2.5s ease-in-out infinite;filter:drop-shadow(0 0 5px rgba(74,168,255,.18))}
+          .state-sync .power,.state-offline .power{animation:pLow 2.4s ease-in-out infinite}
+          @keyframes pOff{0%,100%{transform:scale(1)}50%{transform:scale(1.09)}}
+          @keyframes pOffing{0%,100%{transform:scale(1)}50%{transform:scale(.91)}}
+          @keyframes pSpeed{0%,100%{transform:scale(.97)}50%{transform:scale(1.07)}}
+          @keyframes pLow{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+          @keyframes pHigh{0%,100%{transform:scale(.98)}50%{transform:scale(1.08)}}
+          @keyframes pSoak{0%,100%{transform:scale(1)}50%{transform:scale(1.055)}}
+          .flash .ring{animation:flashRing .55s ease-out}
+          @keyframes flashRing{0%{filter:brightness(1)}45%{filter:brightness(1.45)}100%{filter:brightness(1)}}
+          </style>
+          </head>
+          <body>
+          <div class="wrap state-sync" id="wrap">
+            <div class="red-wave w1"></div><div class="red-wave w2"></div>
+            <div class="orbit"></div><div class="orbit2"></div>
+            <div class="ripple r1"></div><div class="ripple r2"></div><div class="ripple r3"></div>
+            <svg class="soak-svg" viewBox="0 0 100 100">
+              <circle class="soak-base" cx="50" cy="50" r="33.5"></circle>
+              <circle id="soakFill" class="soak-fill" cx="50" cy="50" r="33.5"></circle>
+            </svg>
+            <div class="halo"></div><div class="ring"></div>
+            <div class="inner">
+              <svg class="power" viewBox="0 0 100 100" fill="none">
+                <path d="M50 18V46" stroke-width="7" stroke-linecap="round"/>
+                <path d="M34 31C24 38 18 48 18 59C18 77 32 91 50 91C68 91 82 77 82 59C82 48 76 38 66 31" stroke-width="7" stroke-linecap="round"/>
+              </svg>
+            </div>
+          </div>
+          <script>
+          const root=document.documentElement, wrap=document.getElementById('wrap'), fill=document.getElementById('soakFill');
+          const C=2*Math.PI*33.5;
+          fill.style.strokeDasharray=`${C} ${C}`;
+          fill.style.strokeDashoffset=C;
+          let soakRAF=0, soakStart=0, soakFrom=0, soakDuration=0;
+          const cfg={
+            sync:{cls:'state-sync',color:'#5c7088',o1:'2.4s',o2:'3.2s'},
+            offline:{cls:'state-offline',color:'#8494a7',o1:'4s',o2:'5s'},
+            off:{cls:'state-off',color:'#e44a5a',o1:'2.6s',o2:'3.5s'},
+            offing:{cls:'state-offing',color:'#e44a5a',o1:'2.6s',o2:'3.5s'},
+            soak:{cls:'state-soak',color:'#4aa8ff',o1:'2.6s',o2:'3.5s'},
+            low:{cls:'state-on-low',color:'#36c978',o1:'2.6s',o2:'3.6s'},
+            high:{cls:'state-on-high',color:'#36c978',o1:'1.2s',o2:'1.85s'},
+            fanLow:{cls:'state-fan-low',color:'#20b7c9',o1:'2.6s',o2:'3.6s'},
+            fanHigh:{cls:'state-fan-high',color:'#20b7c9',o1:'1.2s',o2:'1.85s'},
+            speed:{cls:'state-speed',color:'#ff9f3d',o1:'1s',o2:'1.55s'},
+            pending:{cls:'state-pending',color:'#f0a11e',o1:'.9s',o2:'1.35s'}
+          };
+          function apply(name){
+            const s=cfg[name]||cfg.sync;
+            root.style.setProperty('--state',s.color);
+            root.style.setProperty('--orbit1',s.o1);
+            root.style.setProperty('--orbit2',s.o2);
+            wrap.className='wrap '+s.cls;
+          }
+          function setProgress(p){
+            p=Math.max(0,Math.min(1,p));
+            fill.style.strokeDashoffset=C*(1-p);
+            wrap.classList.toggle('active',p>.04);
+            wrap.classList.toggle('mid',p>=.35);
+            wrap.classList.toggle('high',p>=.70);
+          }
+          function animateSoak(from,remaining){
+            cancelAnimationFrame(soakRAF);
+            soakFrom=Math.max(0,Math.min(1,from));
+            soakDuration=Math.max(0,remaining*1000);
+            soakStart=performance.now();
+            setProgress(soakFrom);
+            if(soakDuration<=0){setProgress(1);return}
+            const tick=t=>{
+              const k=Math.min(1,(t-soakStart)/soakDuration);
+              setProgress(soakFrom+(1-soakFrom)*k);
+              if(k<1)soakRAF=requestAnimationFrame(tick);
+            };
+            soakRAF=requestAnimationFrame(tick);
+          }
+          window.AireSmartPower={
+            setMode(name){cancelAnimationFrame(soakRAF);apply(name);if(name!=='soak')setProgress(0)},
+            setSoakRemaining(rem){apply('soak');const r=Math.max(0,Math.min(120,Number(rem)||0));animateSoak(1-r/120,r)},
+            flashSuccess(){wrap.classList.remove('flash');void wrap.offsetWidth;wrap.classList.add('flash');setTimeout(()=>wrap.classList.remove('flash'),650)}
+          };
+          apply('sync');
+          </script>
+          </body></html>
+          EOF
+
           cat > app/src/main/java/com/airesmart/remote/MainActivity.java <<'EOF'
           package com.airesmart.remote;
 
@@ -517,6 +664,7 @@ jobs:
           import android.view.View;
           import android.widget.Button;
           import android.widget.EditText;
+          import android.widget.FrameLayout;
           import android.widget.LinearLayout;
           import android.widget.ScrollView;
           import android.widget.TextView;
@@ -634,7 +782,7 @@ jobs:
                   super.onCreate(savedInstanceState);
 
                   prefs = getSharedPreferences("airesmart", MODE_PRIVATE);
-                  BlackBoxLogger.log(this, "app", "info", "Aplicación iniciada", "AireSmart v1.0.26.1", -1);
+                  BlackBoxLogger.log(this, "app", "info", "Aplicación iniciada", "AireSmart v1.0.28", -1);
                   host = prefs.getString("host", host);
                   port = prefs.getInt("port", port);
                   username = prefs.getString("username", username);
@@ -1439,7 +1587,7 @@ jobs:
                   up.topMargin = dp(14);
                   root.addView(updateCard, up);
 
-                  TextView version = text("AireSmart Remote v1.0.26.1", 10, Color.rgb(132,148,167), false);
+                  TextView version = text("AireSmart Remote v1.0.28", 10, Color.rgb(132,148,167), false);
                   LinearLayout.LayoutParams vp = lp(-1, -2);
                   vp.topMargin = dp(20);
                   root.addView(version, vp);
@@ -2946,7 +3094,20 @@ jobs:
                   pendingSentAt = System.currentTimeMillis();
                   BlackBoxLogger.log(this, "cmd", "info", "Orden enviada", commandLabel(action, value) + " · Red: " + networkLabel(), -1);
                   showAck("ENVIANDO ORDEN…", false);
-                  powerRing.setMode(PowerRingView.MODE_PENDING);
+
+                  if ("power".equals(action) && "false".equals(value)) {
+                      systemState.setText("APAGANDO…");
+                      systemState.setTextColor(Color.rgb(201,54,64));
+                      heroSub.setText("Esperando confirmación del AireSmart");
+                      powerRing.setMode(PowerRingView.MODE_OFFING);
+                  } else if ("speed".equals(action)) {
+                      systemState.setText("CAMBIANDO VELOCIDAD");
+                      systemState.setTextColor(Color.rgb(240,139,42));
+                      heroSub.setText("Protección del motor activa");
+                      powerRing.setMode(PowerRingView.MODE_SPEED);
+                  } else {
+                      powerRing.setMode(PowerRingView.MODE_PENDING);
+                  }
 
                   mainHandler.removeCallbacks(ackTimeout);
                   mainHandler.postDelayed(ackTimeout, 8000);
@@ -2982,6 +3143,7 @@ jobs:
 
                   fanMode = fanNow;
                   systemActive = soakingNow || !upper.contains("APAGADO");
+                  powerRing.setHighSpeed(high);
 
                   if (soakingNow) {
                       systemState.setText("REMOJANDO");
@@ -3041,6 +3203,7 @@ jobs:
               }
 
               private void restoreRing() {
+                  powerRing.setHighSpeed(high);
                   if (!systemActive) {
                       powerRing.setMode(PowerRingView.MODE_OFF);
                   } else if (!motorOn) {
@@ -3344,7 +3507,7 @@ jobs:
                   });
               }
 
-              public static class PowerRingView extends View {
+              public static class PowerRingView extends FrameLayout {
                   public static final int MODE_SYNC = 0;
                   public static final int MODE_OFF = 1;
                   public static final int MODE_SOAK = 2;
@@ -3352,313 +3515,196 @@ jobs:
                   public static final int MODE_PENDING = 4;
                   public static final int MODE_OFFLINE = 5;
                   public static final int MODE_FAN = 6;
+                  public static final int MODE_OFFING = 7;
+                  public static final int MODE_SPEED = 8;
 
-                  private final Paint track = new Paint(Paint.ANTI_ALIAS_FLAG);
-                  private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
-                  private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
-                  private final Paint center = new Paint(Paint.ANTI_ALIAS_FLAG);
-                  private final Paint icon = new Paint(Paint.ANTI_ALIAS_FLAG);
-
+                  private final WebView web;
+                  private final View touchSurface;
                   private int mode = MODE_SYNC;
-                  private float rotation = 0f;
-                  private float pulse = 1f;
-                  private float flash = 0f;
-                  private float soakProgress = 0f;
-                  private ValueAnimator rotationAnimator;
-                  private ValueAnimator pulseAnimator;
-                  private ValueAnimator flashAnimator;
-                  private ValueAnimator progressAnimator;
+                  private boolean highSpeed = false;
+                  private long soakRemaining = 120L;
+                  private boolean pageReady = false;
 
                   public PowerRingView(Context context) {
                       super(context);
-                      setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+                      setClipChildren(false);
+                      setClipToPadding(false);
                       setClickable(true);
                       setFocusable(true);
 
-                      track.setStyle(Paint.Style.STROKE);
-                      track.setStrokeWidth(dpLocal(12));
-                      track.setColor(Color.rgb(215,224,232));
-
-                      glow.setStyle(Paint.Style.STROKE);
-                      glow.setStrokeCap(Paint.Cap.ROUND);
-                      glow.setStrokeWidth(dpLocal(30));
-
-                      ring.setStyle(Paint.Style.STROKE);
-                      ring.setStrokeCap(Paint.Cap.ROUND);
-                      ring.setStrokeWidth(dpLocal(13));
-
-                      center.setStyle(Paint.Style.FILL);
-                      center.setColor(Color.rgb(248,249,251));
-
-                      icon.setStyle(Paint.Style.STROKE);
-                      icon.setStrokeCap(Paint.Cap.ROUND);
-                      icon.setStrokeWidth(dpLocal(5));
-
-                      startModeAnimation();
-                  }
-
-                  public void setMode(int m) {
-                      if (mode == m) return;
-                      mode = m;
-                      startModeAnimation();
-                      invalidate();
-                  }
-
-                  public void setSoakRemaining(long remainingSeconds) {
-                      if (mode != MODE_SOAK) {
-                          mode = MODE_SOAK;
-                          startModeAnimation();
-                      }
-
-                      long safeRemaining =
-                          Math.max(0L, Math.min(120L, remainingSeconds));
-
-                      float targetProgress =
-                          1f - (safeRemaining / 120f);
-
-                      targetProgress =
-                          Math.max(0.02f, Math.min(1f, targetProgress));
-
-                      if (progressAnimator != null) {
-                          progressAnimator.cancel();
-                      }
-
-                      // Corrige suavemente a la posición real que reporta
-                      // el ESP32 y continúa llenando hasta terminar el remojo.
-                      soakProgress = targetProgress;
-
-                      if (safeRemaining == 0L) {
-                          soakProgress = 1f;
-                          invalidate();
-                          return;
-                      }
-
-                      progressAnimator =
-                          ValueAnimator.ofFloat(targetProgress, 1f);
-                      progressAnimator.setDuration(
-                          Math.max(450L, safeRemaining * 1000L)
-                      );
-                      progressAnimator.setInterpolator(
-                          new LinearInterpolator()
-                      );
-                      progressAnimator.addUpdateListener(a -> {
-                          soakProgress = (float) a.getAnimatedValue();
-                          invalidate();
+                      web = new WebView(context);
+                      web.setBackgroundColor(Color.TRANSPARENT);
+                      web.setVerticalScrollBarEnabled(false);
+                      web.setHorizontalScrollBarEnabled(false);
+                      web.setOverScrollMode(View.OVER_SCROLL_NEVER);
+                      web.getSettings().setJavaScriptEnabled(true);
+                      web.getSettings().setDomStorageEnabled(false);
+                      web.getSettings().setAllowFileAccess(true);
+                      web.getSettings().setAllowContentAccess(false);
+                      web.setFocusable(false);
+                      web.setClickable(false);
+                      web.setLongClickable(false);
+                      web.setOnTouchListener((v, event) -> true);
+                      web.setWebViewClient(new WebViewClient() {
+                          @Override
+                          public void onPageFinished(
+                              WebView view,
+                              String url
+                          ) {
+                              pageReady = true;
+                              pushState();
+                          }
                       });
-                      progressAnimator.start();
+
+                      addView(
+                          web,
+                          new FrameLayout.LayoutParams(
+                              LayoutParams.MATCH_PARENT,
+                              LayoutParams.MATCH_PARENT
+                          )
+                      );
+
+                      touchSurface = new View(context);
+                      touchSurface.setBackgroundColor(Color.TRANSPARENT);
+                      touchSurface.setClickable(true);
+                      touchSurface.setLongClickable(true);
+                      addView(
+                          touchSurface,
+                          new FrameLayout.LayoutParams(
+                              LayoutParams.MATCH_PARENT,
+                              LayoutParams.MATCH_PARENT
+                          )
+                      );
+
+                      web.loadUrl(
+                          "file:///android_asset/airesmart/power_visual.html"
+                      );
                   }
 
-                  public void flashSuccess() {
-                      if (flashAnimator != null) flashAnimator.cancel();
-                      flashAnimator = ValueAnimator.ofFloat(0f, 1f, 0f);
-                      flashAnimator.setDuration(520);
-                      flashAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
-                      flashAnimator.addUpdateListener(a -> {
-                          flash = (float) a.getAnimatedValue();
-                          invalidate();
-                      });
-                      flashAnimator.start();
-                  }
-
-                  private void startModeAnimation() {
-                      if (rotationAnimator != null) rotationAnimator.cancel();
-                      if (pulseAnimator != null) pulseAnimator.cancel();
-
-                      rotation = 0f;
-                      pulse = 1f;
-
-                      if (
-                          mode == MODE_SYNC ||
-                          mode == MODE_PENDING
-                      ) {
-                          rotationAnimator = ValueAnimator.ofFloat(0f, 360f);
-                          rotationAnimator.setRepeatCount(ValueAnimator.INFINITE);
-                          rotationAnimator.setInterpolator(new LinearInterpolator());
-                          rotationAnimator.setDuration(
-                              mode == MODE_PENDING ? 780 : 2400
-                          );
-                          rotationAnimator.addUpdateListener(a -> {
-                              rotation = (float) a.getAnimatedValue();
-                              invalidate();
-                          });
-                          rotationAnimator.start();
-                      }
-
-                      if (
-                          mode == MODE_ON ||
-                          mode == MODE_SOAK ||
-                          mode == MODE_FAN
-                      ) {
-                          pulseAnimator = ValueAnimator.ofFloat(1f, 1.028f);
-                          pulseAnimator.setDuration(
-                              mode == MODE_SOAK ? 1150 : 1500
-                          );
-                          pulseAnimator.setRepeatCount(ValueAnimator.INFINITE);
-                          pulseAnimator.setRepeatMode(ValueAnimator.REVERSE);
-                          pulseAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
-                          pulseAnimator.addUpdateListener(a -> {
-                              pulse = (float) a.getAnimatedValue();
-                              invalidate();
-                          });
-                          pulseAnimator.start();
+                  @Override
+                  public void setOnClickListener(OnClickListener listener) {
+                      if (touchSurface != null) {
+                          touchSurface.setOnClickListener(listener);
+                      } else {
+                          super.setOnClickListener(listener);
                       }
                   }
 
                   @Override
-                  protected void onDraw(Canvas c) {
-                      super.onDraw(c);
+                  public void setOnLongClickListener(
+                      OnLongClickListener listener
+                  ) {
+                      if (touchSurface != null) {
+                          touchSurface.setOnLongClickListener(listener);
+                      } else {
+                          super.setOnLongClickListener(listener);
+                      }
+                  }
 
-                      float w = getWidth();
-                      float h = getHeight();
-                      float cx = w / 2f;
-                      float cy = h / 2f;
-                      float radius = Math.min(w, h) * 0.35f;
+                  @Override
+                  public void setOnTouchListener(OnTouchListener listener) {
+                      if (touchSurface != null) {
+                          touchSurface.setOnTouchListener(listener);
+                      } else {
+                          super.setOnTouchListener(listener);
+                      }
+                  }
 
-                      c.save();
-                      c.scale(pulse, pulse, cx, cy);
+                  public void setHighSpeed(boolean high) {
+                      if (highSpeed == high) return;
+                      highSpeed = high;
+                      pushState();
+                  }
 
-                      int color;
+                  public void setMode(int newMode) {
+                      if (mode == newMode) {
+                          pushState();
+                          return;
+                      }
+                      mode = newMode;
+                      pushState();
+                  }
+
+                  public void setSoakRemaining(long remainingSeconds) {
+                      soakRemaining = Math.max(
+                          0L,
+                          Math.min(120L, remainingSeconds)
+                      );
+                      mode = MODE_SOAK;
+
+                      if (!pageReady) return;
+
+                      web.evaluateJavascript(
+                          "window.AireSmartPower&&" +
+                          "window.AireSmartPower.setSoakRemaining(" +
+                          soakRemaining +
+                          ")",
+                          null
+                      );
+                  }
+
+                  public void flashSuccess() {
+                      if (!pageReady) return;
+                      web.evaluateJavascript(
+                          "window.AireSmartPower&&" +
+                          "window.AireSmartPower.flashSuccess()",
+                          null
+                      );
+                  }
+
+                  private String visualState() {
                       switch (mode) {
                           case MODE_OFF:
-                              color = Color.rgb(227,77,89);
-                              break;
+                              return "off";
                           case MODE_SOAK:
-                              color = Color.rgb(13,125,246);
-                              break;
+                              return "soak";
                           case MODE_ON:
-                              color = Color.rgb(19,170,104);
-                              break;
-                          case MODE_PENDING:
-                              color = Color.rgb(240,161,30);
-                              break;
-                          case MODE_OFFLINE:
-                              color = Color.rgb(132,148,167);
-                              break;
+                              return highSpeed ? "high" : "low";
                           case MODE_FAN:
-                              color = Color.rgb(32,183,201);
-                              break;
+                              return highSpeed ? "fanHigh" : "fanLow";
+                          case MODE_PENDING:
+                              return "pending";
+                          case MODE_OFFLINE:
+                              return "offline";
+                          case MODE_OFFING:
+                              return "offing";
+                          case MODE_SPEED:
+                              return "speed";
                           default:
-                              color = Color.rgb(92,112,136);
-                              break;
+                              return "sync";
+                      }
+                  }
+
+                  private void pushState() {
+                      if (!pageReady) return;
+
+                      if (mode == MODE_SOAK) {
+                          web.evaluateJavascript(
+                              "window.AireSmartPower&&" +
+                              "window.AireSmartPower.setSoakRemaining(" +
+                              soakRemaining +
+                              ")",
+                              null
+                          );
+                          return;
                       }
 
-                      if (flash > 0f) {
-                          int r = Math.min(255, (int)(19 + 80 * flash));
-                          int g = Math.min(255, (int)(170 + 70 * flash));
-                          int b = Math.min(255, (int)(104 + 80 * flash));
-                          color = Color.rgb(r, g, b);
-                      }
-
-                      float outer = radius + dpLocal(12);
-                      RectF oval = new RectF(
-                          cx - outer, cy - outer,
-                          cx + outer, cy + outer
+                      String state = visualState();
+                      web.evaluateJavascript(
+                          "window.AireSmartPower&&" +
+                          "window.AireSmartPower.setMode('" +
+                          state +
+                          "')",
+                          null
                       );
-
-                      c.drawOval(oval, track);
-
-                      float sweep;
-                      float startAngle;
-
-                      if (mode == MODE_SYNC) {
-                          sweep = 250f;
-                          startAngle = -90f + rotation;
-                      } else if (mode == MODE_SOAK) {
-                          sweep = Math.max(5f, 360f * soakProgress);
-                          startAngle = -90f;
-                      } else if (mode == MODE_PENDING) {
-                          sweep = 285f;
-                          startAngle = -90f + rotation;
-                      } else {
-                          sweep = 360f;
-                          startAngle = -90f;
-                      }
-
-                      // Circular glow: painted as concentric arcs instead of a rectangular shadow.
-                      int glowAlphaOuter = Math.min(90, 28 + (int)(35 * flash));
-                      int glowAlphaInner = Math.min(120, 48 + (int)(45 * flash));
-
-                      glow.setStrokeWidth(dpLocal(34 + 5 * flash));
-                      glow.setColor(Color.argb(
-                          glowAlphaOuter,
-                          Color.red(color),
-                          Color.green(color),
-                          Color.blue(color)
-                      ));
-                      c.drawArc(
-                          oval,
-                          startAngle,
-                          sweep,
-                          false,
-                          glow
-                      );
-
-                      glow.setStrokeWidth(dpLocal(23 + 3 * flash));
-                      glow.setColor(Color.argb(
-                          glowAlphaInner,
-                          Color.red(color),
-                          Color.green(color),
-                          Color.blue(color)
-                      ));
-                      c.drawArc(
-                          oval,
-                          startAngle,
-                          sweep,
-                          false,
-                          glow
-                      );
-
-                      ring.setColor(color);
-                      c.drawArc(
-                          oval,
-                          startAngle,
-                          sweep,
-                          false,
-                          ring
-                      );
-
-                      center.setShadowLayer(
-                          dpLocal(9),
-                          0,
-                          dpLocal(4),
-                          0x25000000
-                      );
-                      c.drawCircle(cx, cy, radius, center);
-                      center.clearShadowLayer();
-
-                      icon.setColor(color);
-
-                      float iconR = radius * 0.34f;
-                      RectF p = new RectF(
-                          cx - iconR,
-                          cy - iconR,
-                          cx + iconR,
-                          cy + iconR
-                      );
-
-                      c.drawArc(p, -44f, 268f, false, icon);
-                      c.drawLine(
-                          cx,
-                          cy - iconR * 1.05f,
-                          cx,
-                          cy - iconR * 0.05f,
-                          icon
-                      );
-
-                      c.restore();
                   }
 
                   @Override
                   protected void onDetachedFromWindow() {
+                      if (web != null) {
+                          web.stopLoading();
+                      }
                       super.onDetachedFromWindow();
-                      if (rotationAnimator != null) rotationAnimator.cancel();
-                      if (pulseAnimator != null) pulseAnimator.cancel();
-                      if (flashAnimator != null) flashAnimator.cancel();
-                      if (progressAnimator != null) progressAnimator.cancel();
-                  }
-
-                  private float dpLocal(float v) {
-                      return v * getResources().getDisplayMetrics().density;
                   }
               }
           }
@@ -3668,7 +3714,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.26.1_Visual_Engine.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.28_Visual_Power.apk
 
       - name: Verify APK signature
         env:
@@ -3678,23 +3724,23 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.26.1_Visual_Engine.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.28_Visual_Power.apk
 
       - name: Generate in-app update manifest
         shell: bash
         run: |
           set -euo pipefail
 
-          APK="AireSmart_Remote_v1.0.26.1_Visual_Engine.apk"
+          APK="AireSmart_Remote_v1.0.28_Visual_Power.apk"
           SHA256="$(sha256sum "$APK" | awk '{print $1}')"
 
           cat > latest.json <<EOF
           {
-            "versionCode": 29,
-            "versionName": "1.0.26.1",
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.26.1/${APK}",
+            "versionCode": 32,
+            "versionName": "1.0.28",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.28/${APK}",
             "sha256": "${SHA256}",
-            "notes": "Visual Engine y Caja Negra WebView con diagnóstico MQTT/ACK."
+            "notes": "Visual Power: animaciones de estados del botón principal en WebView + Caja Negra MQTT/ACK."
           }
           EOF
 
@@ -3705,8 +3751,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="v1.0.26.1"
-          APK="AireSmart_Remote_v1.0.26.1_Visual_Engine.apk"
+          TAG="v1.0.28"
+          APK="AireSmart_Remote_v1.0.28_Visual_Power.apk"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload \
@@ -3719,8 +3765,8 @@ jobs:
               "$TAG" \
               "$APK" \
               latest.json \
-              --title "AireSmart Remote v1.0.26.1" \
-              --notes "AireSmart Visual Engine + Caja Negra WebView con diagnóstico persistente."
+              --title "AireSmart Remote v1.0.28" \
+              --notes "AireSmart Visual Power: botón principal híbrido WebView con estados animados + Caja Negra."
           fi
 
           # Fuerza esta release como la Latest Release de GitHub.
@@ -3734,7 +3780,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.26.1-Visual-Engine
+          name: AireSmart-Remote-v1.0.28-Visual-Power
           path: |
-            AireSmart_Remote_v1.0.26.1_Visual_Engine.apk
+            AireSmart_Remote_v1.0.28_Visual_Power.apk
             latest.json
