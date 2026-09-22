@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.airesmart.remote"
                   minSdk 23
                   targetSdk 35
-                  versionCode 34
-                  versionName "1.0.30"
+                  versionCode 35
+                  versionName "1.0.31"
               }
 
               signingConfigs {
@@ -299,7 +299,7 @@ jobs:
             </section>
             <section class="card"><div class="head"><b>Eventos</b><span id="eventCount">0 eventos</span></div><div class="filters"><button class="chip active" data-filter="all">Todos</button><button class="chip" data-filter="cmd">Órdenes</button><button class="chip" data-filter="mqtt">MQTT</button><button class="chip" data-filter="ack">ACK</button><button class="chip" data-filter="state">Estado</button><button class="chip" data-filter="error">Errores</button></div><div class="timeline" id="timeline"><div class="empty">Cargando…</div></div></section>
             <section class="card"><div class="head"><b>Acciones</b><span>diagnóstico</span></div><div class="actions"><button class="btn primary" id="refreshBtn">Actualizar</button><button class="btn" id="copyBtn">Copiar diagnóstico</button><button class="btn" id="exportBtn">Exportar registro</button><button class="btn danger" id="clearBtn">Borrar historial</button></div></section>
-            <div class="footer">AireSmart v1.0.30 • Speed Transfer Fix</div>
+            <div class="footer">AireSmart v1.0.31 • Flip 3D Speed UI</div>
           </div><script src="ui.js"></script><script src="bridge.js"></script></body></html>
           EOF
 
@@ -640,6 +640,8 @@ jobs:
           import android.content.Intent;
           import android.content.SharedPreferences;
           import android.graphics.Canvas;
+          import android.graphics.Camera;
+          import android.graphics.Matrix;
           import android.graphics.Color;
           import android.graphics.Paint;
           import android.graphics.Path;
@@ -3196,6 +3198,22 @@ jobs:
                   String upper = state == null ? "--" : state.toUpperCase();
                   boolean soakingNow = soak > 0 || upper.contains("REMOJ");
                   boolean fanNow = upper.contains("SOLO AIRE");
+                  boolean speedPending =
+                      pendingId != null &&
+                      "speed".equals(pendingAction);
+
+                  // Durante el corte eléctrico de protección al cambiar velocidad,
+                  // el ESP32 puede publicar motor=false/APAGADO por un instante.
+                  // Ese estado transitorio no debe reemplazar la animación de cambio.
+                  if (speedPending) {
+                      systemState.setText("CAMBIANDO VELOCIDAD");
+                      systemState.setTextColor(Color.rgb(240,139,42));
+                      heroSub.setText("Protección del motor activa");
+                      powerRing.setHighSpeed(high);
+                      powerRing.setMode(PowerRingView.MODE_SPEED);
+                      paintSpeedButtons();
+                      return;
+                  }
 
                   fanMode = fanNow;
                   systemActive = soakingNow || !upper.contains("APAGADO");
@@ -3615,6 +3633,8 @@ jobs:
                   private final Path liquidPath = new Path();
                   private final RectF left = new RectF();
                   private final RectF right = new RectF();
+                  private final Camera camera = new Camera();
+                  private final Matrix cameraMatrix = new Matrix();
                   private final float density;
                   private final ValueAnimator loop;
 
@@ -3735,6 +3755,10 @@ jobs:
 
                       if (pendingCommit) {
                           pendingSelection = -1;
+                          if (transferAnimator != null) {
+                              transferAnimator.cancel();
+                          }
+                          transferProgress = -1f;
                       }
                   }
 
@@ -3744,7 +3768,7 @@ jobs:
                       transferTo = to;
                       transferProgress = 0f;
                       transferAnimator = ValueAnimator.ofFloat(0f, 1f);
-                      transferAnimator.setDuration(580L);
+                      transferAnimator.setDuration(700L);
                       transferAnimator.setInterpolator(
                           new AccelerateDecelerateInterpolator()
                       );
@@ -3756,7 +3780,11 @@ jobs:
                           new AnimatorListenerAdapter() {
                               @Override
                               public void onAnimationEnd(Animator animation) {
-                                  transferProgress = -1f;
+                                  // Si todavía esperamos ACK, conservamos el último
+                                  // fotograma del Flip 3D. Así no vuelve de golpe
+                                  // al botón anterior durante la protección del motor.
+                                  transferProgress =
+                                      pendingSelection >= 0 ? 1f : -1f;
                                   invalidate();
                               }
                           }
@@ -3787,25 +3815,29 @@ jobs:
                           return;
                       }
 
-                      if (selection == 0) {
-                          if (type == TYPE_MODE) {
-                              drawCool(canvas, left, radius);
-                          } else {
-                              drawLow(canvas, left, radius);
-                          }
-                      } else if (selection == 1) {
-                          if (type == TYPE_MODE) {
-                              drawFan(canvas, right, radius);
-                          } else {
-                              drawHigh(canvas, right, radius);
+                      boolean flipActive =
+                          type == TYPE_SPEED &&
+                          transferProgress >= 0f;
+
+                      if (!flipActive) {
+                          if (selection == 0) {
+                              if (type == TYPE_MODE) {
+                                  drawCool(canvas, left, radius);
+                              } else {
+                                  drawLow(canvas, left, radius);
+                              }
+                          } else if (selection == 1) {
+                              if (type == TYPE_MODE) {
+                                  drawFan(canvas, right, radius);
+                              } else {
+                                  drawHigh(canvas, right, radius);
+                              }
                           }
                       }
 
-                      if (type == TYPE_SPEED && transferProgress >= 0f) {
-                          drawTransfer(canvas);
-                      }
-
-                      if (
+                      if (flipActive) {
+                          drawFlipTransfer(canvas, radius);
+                      } else if (
                           type == TYPE_SPEED &&
                           pendingSelection >= 0
                       ) {
@@ -3938,28 +3970,138 @@ jobs:
                       canvas.restore();
                   }
 
-                  private void drawTransfer(Canvas canvas) {
+                  private void drawFlipTransfer(
+                      Canvas canvas,
+                      float radius
+                  ) {
                       RectF from = transferFrom == 0 ? left : right;
                       RectF to = transferTo == 0 ? left : right;
 
-                      float x = from.centerX()
-                          + (to.centerX() - from.centerX()) * transferProgress;
-                      float y = getHeight() / 2f;
-                      float peak = (float)Math.sin(
-                          transferProgress * Math.PI
+                      float p = Math.max(
+                          0f,
+                          Math.min(1f, transferProgress)
                       );
-                      float radius = dpv(5f + 2f * peak);
+                      float eased = p < 0.5f
+                          ? 2f * p * p
+                          : 1f - (float)Math.pow(-2f * p + 2f, 2f) / 2f;
 
+                      // Giro moderado: el botón origen se aleja y el destino
+                      // entra al frente. Está inspirado en la demo Flip 3D pulida.
+                      float fromAngle =
+                          (transferTo == 1 ? 18f : -18f) * eased;
+                      float toAngle =
+                          (transferTo == 1 ? 20f : -20f) * (1f - eased);
+
+                      float fromScale = 1f - 0.028f * eased;
+                      float toScale = 0.97f + 0.03f * eased;
+
+                      int fromAlpha = (int)(255f - 105f * eased);
+                      int toAlpha = (int)(45f + 150f * eased);
+
+                      // La base gris ya está pintada. Encima dibujamos el origen
+                      // y el destino con perspectiva y opacidad progresiva.
+                      drawSpeedCard3D(
+                          canvas,
+                          from,
+                          radius,
+                          transferFrom,
+                          fromAngle,
+                          fromScale,
+                          fromAlpha
+                      );
+
+                      drawSpeedCard3D(
+                          canvas,
+                          to,
+                          radius,
+                          transferTo,
+                          toAngle,
+                          toScale,
+                          toAlpha
+                      );
+
+                      // Glow muy discreto debajo del destino.
+                      float glowAlpha =
+                          p * (
+                              0.10f +
+                              0.90f * (float)Math.sin(
+                                  Math.PI * Math.min(1f, p)
+                              )
+                          );
                       int color = transferTo == 1
-                          ? Color.rgb(245,163,78)
-                          : Color.rgb(90,166,239);
+                          ? Color.rgb(242,161,76)
+                          : Color.rgb(88,164,235);
 
-                      paint.setColor(Color.argb(70, Color.red(color),
-                          Color.green(color), Color.blue(color)));
-                      canvas.drawCircle(x, y, radius * 2.1f, paint);
+                      paint.setStyle(Paint.Style.FILL);
+                      paint.setColor(
+                          Color.argb(
+                              (int)(55f * glowAlpha),
+                              Color.red(color),
+                              Color.green(color),
+                              Color.blue(color)
+                          )
+                      );
+                      paint.setShadowLayer(
+                          dpv(7f),
+                          0f,
+                          dpv(2f),
+                          color
+                      );
 
-                      paint.setColor(color);
-                      canvas.drawCircle(x, y, radius, paint);
+                      float glowWidth = to.width() * 0.34f;
+                      RectF glow = new RectF(
+                          to.centerX() - glowWidth / 2f,
+                          to.bottom - dpv(2f),
+                          to.centerX() + glowWidth / 2f,
+                          to.bottom + dpv(3f)
+                      );
+                      canvas.drawRoundRect(
+                          glow,
+                          dpv(6f),
+                          dpv(6f),
+                          paint
+                      );
+                      paint.clearShadowLayer();
+                  }
+
+                  private void drawSpeedCard3D(
+                      Canvas canvas,
+                      RectF rect,
+                      float radius,
+                      int speedValue,
+                      float angleY,
+                      float scale,
+                      int alpha
+                  ) {
+                      int save = canvas.save();
+
+                      camera.save();
+                      cameraMatrix.reset();
+                      camera.rotateY(angleY);
+                      camera.getMatrix(cameraMatrix);
+                      camera.restore();
+
+                      float cx = rect.centerX();
+                      float cy = rect.centerY();
+                      cameraMatrix.preTranslate(-cx, -cy);
+                      cameraMatrix.postTranslate(cx, cy);
+
+                      canvas.concat(cameraMatrix);
+                      canvas.scale(scale, scale, cx, cy);
+
+                      int layer = canvas.saveLayerAlpha(
+                          rect,
+                          Math.max(0, Math.min(255, alpha))
+                      );
+
+                      if (speedValue == 0) {
+                          drawLow(canvas, rect, radius);
+                      } else {
+                          drawHigh(canvas, rect, radius);
+                      }
+
+                      canvas.restoreToCount(layer);
+                      canvas.restoreToCount(save);
                   }
 
                   private void drawPendingTarget(
@@ -4228,7 +4370,7 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename signed APK
-        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.30_Speed_Transfer_Fix.apk
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.31_Flip3D_Speed_UI.apk
 
       - name: Verify APK signature
         env:
@@ -4238,23 +4380,23 @@ jobs:
           set -euo pipefail
 
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.30_Speed_Transfer_Fix.apk
+          "$APKSIGNER" verify             --verbose             --print-certs             AireSmart_Remote_v1.0.31_Flip3D_Speed_UI.apk
 
       - name: Generate in-app update manifest
         shell: bash
         run: |
           set -euo pipefail
 
-          APK="AireSmart_Remote_v1.0.30_Speed_Transfer_Fix.apk"
+          APK="AireSmart_Remote_v1.0.31_Flip3D_Speed_UI.apk"
           SHA256="$(sha256sum "$APK" | awk '{print $1}')"
 
           cat > latest.json <<EOF
           {
-            "versionCode": 34,
-            "versionName": "1.0.30",
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.30/${APK}",
+            "versionCode": 35,
+            "versionName": "1.0.31",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.31/${APK}",
             "sha256": "${SHA256}",
-            "notes": "Controles compactos animados: MODO y VELOCIDAD + Visual Power + Caja Negra MQTT/ACK."
+            "notes": "Flip 3D pulido en BAJA/ALTA, estado CAMBIANDO VELOCIDAD protegido + Visual Power + Caja Negra MQTT/ACK."
           }
           EOF
 
@@ -4265,8 +4407,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="v1.0.30"
-          APK="AireSmart_Remote_v1.0.30_Speed_Transfer_Fix.apk"
+          TAG="v1.0.31"
+          APK="AireSmart_Remote_v1.0.31_Flip3D_Speed_UI.apk"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload \
@@ -4279,8 +4421,8 @@ jobs:
               "$TAG" \
               "$APK" \
               latest.json \
-              --title "AireSmart Remote v1.0.30" \
-              --notes "AireSmart v1.0.29: controles compactos animados de MODO/VELOCIDAD + Visual Power + Caja Negra."
+              --title "AireSmart Remote v1.0.31" \
+              --notes "AireSmart v1.0.31: Flip 3D pulido para BAJA/ALTA, sin parpadeo APAGADO durante la protección del motor."
           fi
 
           # Fuerza esta release como la Latest Release de GitHub.
@@ -4294,7 +4436,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: AireSmart-Remote-v1.0.30-Speed-Transfer-Fix
+          name: AireSmart-Remote-v1.0.31-Flip3D-Speed-UI
           path: |
-            AireSmart_Remote_v1.0.30_Speed_Transfer_Fix.apk
+            AireSmart_Remote_v1.0.31_Flip3D_Speed_UI.apk
             latest.json
