@@ -3248,7 +3248,7 @@ jobs:
           {
             "versionCode": 25,
             "versionName": "1.0.24",
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.24/${APK}",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.23/${APK}",
             "sha256": "${SHA256}",
             "notes": "Prueba del actualizador integrado de AireSmart."
           }
@@ -3276,8 +3276,11 @@ jobs:
               "$APK" \
               latest.json \
               --title "AireSmart Remote v1.0.24" \
-              --notes "Prueba de actualización automática desde AireSmart."
+              --notes "Prueba real de actualización desde la propia aplicación."
           fi
+
+          # Fuerza esta release como la Latest Release de GitHub.
+          gh release edit "$TAG" --latest
 
       - name: Remove decrypted key
         if: always()
