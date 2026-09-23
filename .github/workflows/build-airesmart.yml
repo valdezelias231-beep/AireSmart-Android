@@ -74,6 +74,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p app/src/main/res/drawable
           base64 -d build-assets/airesmart_app_icon.b64 \
             > app/src/main/res/drawable/airesmart_app_icon.png
 
