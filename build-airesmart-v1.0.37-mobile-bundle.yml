@@ -1,0 +1,144 @@
+name: Build AireSmart APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-airesmart.yml'
+      - 'app/**'
+      - 'airesmart-source-v1.0.37.tar.gz.b64'
+      - 'settings.gradle'
+      - 'build.gradle'
+      - 'gradle.properties'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      AIRESMART_SIGNING_PASSWORD: ${{ secrets.AIRESMART_SIGNING_PASSWORD }}
+      AIRESMART_KEY_ALIAS: airesmart
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Install Android SDK 35
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+        run: |
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Verify permanent signing setup
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AIRESMART_SIGNING_PASSWORD:-}"
+          test -s ".github/signing/airesmart-release.jks.enc"
+
+      - name: Decrypt permanent AireSmart signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 250000 \
+            -in .github/signing/airesmart-release.jks.enc \
+            -out /tmp/airesmart-release.jks \
+            -pass env:AIRESMART_SIGNING_PASSWORD
+          test -s /tmp/airesmart-release.jks
+
+      - name: Restore AireSmart project source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s airesmart-source-v1.0.37.tar.gz.b64
+          base64 -d airesmart-source-v1.0.37.tar.gz.b64 > /tmp/airesmart-source.tar.gz
+          tar -xzf /tmp/airesmart-source.tar.gz
+
+      - name: Prepare launcher icon
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/src/main/res/drawable
+          base64 -d build-assets/airesmart_app_icon.b64 \
+            > app/src/main/res/drawable/airesmart_app_icon.png
+
+      - name: Build permanently signed release APK
+        run: gradle :app:assembleRelease --stacktrace
+
+      - name: Rename signed APK
+        run: cp app/build/outputs/apk/release/app-release.apk AireSmart_Remote_v1.0.37_Seamless_Slider_UI.apk
+
+      - name: Verify APK signature
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+        shell: bash
+        run: |
+          set -euo pipefail
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
+          "$APKSIGNER" verify --verbose --print-certs \
+            AireSmart_Remote_v1.0.37_Seamless_Slider_UI.apk
+
+      - name: Generate in-app update manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="AireSmart_Remote_v1.0.37_Seamless_Slider_UI.apk"
+          SHA256="$(sha256sum "$APK" | awk '{print $1}')"
+          cat > latest.json <<EOF
+          {
+            "versionCode": 41,
+            "versionName": "1.0.37",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v1.0.37/${APK}",
+            "sha256": "${SHA256}",
+            "notes": "v1.0.37: elimina la línea superior durante el deslizamiento de MODO y VELOCIDAD; conserva el cambio de color desde la mitad."
+          }
+          EOF
+
+      - name: Publish permanent AireSmart release
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="v1.0.37"
+          APK="AireSmart_Remote_v1.0.37_Seamless_Slider_UI.apk"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" latest.json --clobber
+          else
+            gh release create "$TAG" "$APK" latest.json \
+              --title "AireSmart Remote v1.0.37" \
+              --notes "AireSmart v1.0.37: elimina la línea superior durante el deslizamiento de MODO y VELOCIDAD; conserva el cambio de color desde la mitad."
+          fi
+
+          gh release edit "$TAG" --latest
+
+      - name: Remove decrypted key
+        if: always()
+        shell: bash
+        run: rm -f /tmp/airesmart-release.jks
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AireSmart-Remote-v1.0.37-Seamless-Slider-UI
+          path: |
+            AireSmart_Remote_v1.0.37_Seamless_Slider_UI.apk
+            latest.json
