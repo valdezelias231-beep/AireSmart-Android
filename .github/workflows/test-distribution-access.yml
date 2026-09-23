@@ -1,0 +1,64 @@
+name: Probar acceso distribucion AireSmart
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-access:
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.AIRESMART_DISTRIBUTION_TOKEN }}
+      DISTRIBUTION_REPO: valdezelias231-beep/AireSmart-Android
+
+    steps:
+      - name: Verificar token
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "ERROR: AIRESMART_DISTRIBUTION_TOKEN no existe."
+            exit 1
+          fi
+
+      - name: Verificar acceso al repositorio publico
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh repo view "$DISTRIBUTION_REPO" \
+            --json nameWithOwner,visibility
+
+      - name: Verificar permiso de escritura
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CAN_PUSH="$(
+            gh api "repos/$DISTRIBUTION_REPO" \
+              --jq '.permissions.push'
+          )"
+
+          echo "Permiso de escritura detectado: $CAN_PUSH"
+
+          if [ "$CAN_PUSH" != "true" ]; then
+            echo "ERROR: El token no tiene permiso Contents: Read and write."
+            exit 1
+          fi
+
+          echo "OK: AireSmart-Android-Source puede publicar en AireSmart-Android."
+
+      - name: Consultar release actual sin modificar nada
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh release list \
+            --repo "$DISTRIBUTION_REPO" \
+            --limit 5
+
+          echo "Prueba terminada. No se publico ni modifico ningun archivo."
